@@ -1,0 +1,303 @@
+:root {
+  /* Brand Global Design Reference — lighter canvas (near-white) for customer app */
+  --vs-background: #FCFCFB;
+  --vs-surface: #FFFFFF;
+  --vs-text: #0A0A0A;
+  --vs-text-muted: #5C5A55;
+  --vs-text-faint: #8A8680;
+  --vs-border: #E8E4DC;
+  --vs-primary: #FD4A29;
+  --vs-primary-hover: #E03E20;
+  --vs-primary-soft: #FFE4DC;
+  --vs-secondary: #0A0A0A;
+  --vs-action: #0A0A0A;
+  --vs-action-ink: #FFFFFF;
+  --vs-success: #1F7A4C;
+  --vs-warning: #B7791F;
+  --vs-danger: #B42318;
+  --vs-info: #2F6FED;
+  --vs-font-display: "Gabarito", system-ui, sans-serif;
+  --vs-font-body: "Anek Latin", system-ui, sans-serif;
+  --vs-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --vs-font-family: var(--vs-font-body);
+  --vs-radius-btn: 12px;
+  --vs-radius-card: 12px;
+  --vs-radius-pill: 999px;
+  --vs-shadow-sm: 0 4px 16px rgba(10, 10, 10, 0.04);
+  --vs-shadow-md: 0 8px 24px rgba(10, 10, 10, 0.06);
+  --vs-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --vs-space-1: 4px;
+  --vs-space-2: 8px;
+  --vs-space-3: 12px;
+  --vs-space-4: 16px;
+  --vs-space-5: 24px;
+  --vs-space-6: 32px;
+
+  --vos-bg: var(--vs-background);
+  --vos-bg-accent: #F7F7F5;
+  --vos-surface: var(--vs-surface);
+  --vos-ink: var(--vs-text);
+  --vos-ink-muted: var(--vs-text-muted);
+  --vos-brand: var(--vs-primary);
+  --vos-brand-soft: var(--vs-primary-soft);
+  --vos-accent: var(--vs-primary);
+  --vos-success: var(--vs-success);
+  --vos-warning: var(--vs-warning);
+  --vos-danger: var(--vs-danger);
+  --vos-info: var(--vs-info);
+  --vos-border: var(--vs-border);
+  --vos-shadow: var(--vs-shadow-md);
+  --vos-radius: var(--vs-radius-card);
+  --vos-radius-sm: var(--vs-radius-btn);
+  --vos-tap: 44px;
+  --vos-font: var(--vs-font-body);
+  --vos-display: var(--vs-font-display);
+  --vos-mono: var(--vs-font-mono);
+  --vos-max: 1100px;
+  --vos-nav-clearance: calc(84px + env(safe-area-inset-bottom));
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: #FCFCFB;
+  color: var(--vos-ink);
+  font-family: var(--vos-font);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+a {
+  color: var(--vos-brand);
+}
+
+:focus-visible {
+  outline: 2px solid var(--vos-brand);
+  outline-offset: 2px;
+}
+
+.vos-page {
+  max-width: var(--vos-max);
+  margin: 0 auto;
+}
+
+.vos-greeting {
+  font-family: var(--vos-display);
+  font-weight: 700;
+  font-size: 1.65rem;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  color: var(--vos-ink);
+  margin: 0;
+}
+
+.vos-pet-name {
+  font-family: var(--vos-display);
+  font-weight: 600;
+}
+
+.vos-card {
+  background: var(--vos-surface);
+  border-radius: var(--vos-radius);
+  padding: 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--vos-shadow);
+  border: 1px solid transparent;
+}
+
+.vos-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--vos-tap);
+  padding: 12px 16px;
+  border-radius: var(--vos-radius-sm);
+  border: 0;
+  background: var(--vos-brand);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  width: 100%;
+}
+
+.vos-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.vos-btn-secondary {
+  background: var(--vos-surface);
+  color: var(--vos-brand);
+  border: 1px solid var(--vos-border);
+}
+
+.vos-btn-accent {
+  background: var(--vos-accent);
+  color: #fff;
+}
+
+.vos-btn-ghost {
+  background: transparent;
+  color: var(--vos-brand);
+  border: 1px solid var(--vos-border);
+}
+
+.vos-badge {
+  display: inline-block;
+  background: var(--vos-brand-soft);
+  color: var(--vos-brand);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.vos-muted {
+  color: var(--vos-ink-muted);
+}
+
+.vos-err {
+  background: #fdecec;
+  color: var(--vos-danger);
+  padding: 10px 12px;
+  border-radius: var(--vos-radius-sm);
+  margin-bottom: 10px;
+}
+
+.vos-ok {
+  background: #e8f6ee;
+  color: var(--vos-success);
+  padding: 10px 12px;
+  border-radius: var(--vos-radius-sm);
+  margin-bottom: 10px;
+}
+
+.vos-warn {
+  background: #fff6e8;
+  color: var(--vos-warning);
+  padding: 10px 12px;
+  border-radius: var(--vos-radius-sm);
+  margin-bottom: 10px;
+}
+
+.vos-back {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px 0 8px;
+  margin-bottom: 16px;
+  border-radius: 999px;
+  border: 1px solid var(--vos-border);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 14px rgba(10, 10, 10, 0.04);
+  color: var(--vos-ink);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.92rem;
+  letter-spacing: -0.01em;
+  transition: transform 0.15s var(--vs-ease), background 0.15s ease, border-color 0.15s ease;
+}
+
+.vos-back:hover {
+  background: #fff;
+  border-color: rgba(253, 74, 41, 0.28);
+  transform: translateY(-1px);
+}
+
+.vos-back:active {
+  transform: scale(0.98);
+}
+
+.vos-back__chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #fff 0%, var(--vos-brand-soft) 100%);
+  border: 1px solid rgba(253, 74, 41, 0.18);
+  color: var(--vos-brand);
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 800;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.vos-field {
+  display: block;
+  margin: 12px 0;
+  font-size: 0.92rem;
+}
+
+.vos-field input,
+.vos-field textarea,
+.vos-field select {
+  width: 100%;
+  min-height: var(--vos-tap);
+  margin-top: 6px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--vos-border);
+  background: var(--vos-surface);
+  color: var(--vos-ink);
+}
+
+.vos-skel {
+  height: 72px;
+  border-radius: 16px;
+  background: linear-gradient(
+    105deg,
+    #f0efec 0%,
+    #f0efec 38%,
+    #ffffff 50%,
+    #f0efec 62%,
+    #f0efec 100%
+  );
+  background-size: 220% 100%;
+  animation: vos-shimmer 1.35s ease-in-out infinite;
+  margin-bottom: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.vos-skel--gloss {
+  background: linear-gradient(
+    110deg,
+    rgba(240, 239, 236, 0.95) 0%,
+    rgba(240, 239, 236, 0.95) 36%,
+    rgba(255, 255, 255, 1) 48%,
+    rgba(255, 236, 230, 0.45) 52%,
+    rgba(240, 239, 236, 0.95) 64%,
+    rgba(240, 239, 236, 0.95) 100%
+  );
+  background-size: 240% 100%;
+  animation: vos-shimmer 1.45s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes vos-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.vos-empty {
+  color: var(--vos-ink-muted);
+  padding: 8px 0;
+}
