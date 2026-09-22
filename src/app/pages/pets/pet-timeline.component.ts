@@ -16,7 +16,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
     @if (loading()) {
       <div class="vos-skel"></div>
     } @else if (data()) {
-      <p class="vos-muted">{{ data().pet?.name }} · Medical visits</p>
+      <p class="vos-muted">{{ titleCase(data().pet?.name) }} · Medical visits</p>
 
       @if (data().upcomingFollowUps?.length) {
         <section class="vos-card">
@@ -38,7 +38,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
         <article class="vos-card">
           <p class="date">{{ e.date | slice: 0:10 }}</p>
           <h2>{{ e.title }}</h2>
-          <p class="vos-muted">Dr. {{ e.doctorName }} · {{ e.status }}</p>
+          <p class="vos-muted">{{ doctorLabel(e.doctorName) }} · {{ prettyStatus(e.status) }}</p>
           @if (e.reason) {
             <p><strong>Reason</strong> {{ e.reason }}</p>
           }
@@ -94,6 +94,55 @@ export class PetTimelineComponent implements OnInit {
   ngOnInit() {
     this.petId = this.route.snapshot.paramMap.get('id') || '';
     void this.load();
+  }
+
+  titleCase(v: string | null | undefined): string {
+    const raw = String(v || '').trim();
+    if (!raw) return '';
+    return raw
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+  }
+
+  doctorLabel(name: string | null | undefined): string {
+    let n = String(name || '').trim();
+    if (!n) return 'Doctor TBD';
+    // Collapse duplicated Dr. prefixes and ensure a single spaced title
+    n = n.replace(/^(Dr\.?\s*)+/i, '').trim();
+    return n ? `Dr. ${n}` : 'Doctor TBD';
+  }
+
+  prettyStatus(status: string | null | undefined): string {
+    const raw = String(status || '').trim();
+    if (!raw) return 'Scheduled';
+    const key = raw.toLowerCase().replace(/[\s-]+/g, '_');
+    const map: Record<string, string> = {
+      in_progress: 'In progress',
+      visit_in_progress: 'In progress',
+      completed: 'Visit completed',
+      cancelled: 'Cancelled',
+      canceled: 'Cancelled',
+      confirmed: 'Doctor confirmed',
+      doctor_confirmed: 'Doctor confirmed',
+      assigned: 'Doctor confirmed',
+      pending: 'Pending',
+      received: 'Booking received',
+      booking_received: 'Booking received',
+      en_route: 'En route',
+      arrived: 'Arrived',
+      no_show: 'Missed',
+      missed: 'Missed',
+    };
+    if (map[key]) return map[key];
+    // Fallback: snake_case / camelCase → Title Case words
+    return raw
+      .replace(/_/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
   }
 
   async load() {

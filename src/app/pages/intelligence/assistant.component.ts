@@ -9,7 +9,7 @@ import { ActivePetService } from '../../services/active-pet.service';
   imports: [FormsModule, RouterLink],
   selector: 'app-assistant',
   template: `
-    <a routerLink="/" class="vos-back">← Home</a>
+    <a routerLink="/home" class="vos-back">← Home</a>
     <header class="head">
       <p class="eyebrow">Records help</p>
       <h1>VetonSpot Assistant</h1>

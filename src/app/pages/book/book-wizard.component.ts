@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, HostListener, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
@@ -18,34 +18,65 @@ const REASONS = [
   'other',
 ];
 
-const INTAKE: Record<string, { label: string; placeholder: string }[]> = {
+type IntakeQ = {
+  label: string;
+  placeholder?: string;
+  /** When set, render as selection pills instead of free text. */
+  options?: string[];
+};
+
+const INTAKE: Record<string, IntakeQ[]> = {
   sick: [
     { label: 'What have you noticed?', placeholder: 'Lethargy, feverish, coughing…' },
     { label: 'When did it start?', placeholder: 'e.g. yesterday evening' },
   ],
   'vomiting / diarrhea': [
-    { label: 'How often?', placeholder: 'Once / several times today' },
-    { label: 'Any blood or unusual color?', placeholder: 'Describe if yes' },
+    {
+      label: 'How often?',
+      options: ['Once', 'Several times today', 'Ongoing for days'],
+    },
+    {
+      label: 'Any blood or unusual color?',
+      options: ['No', 'Yes — blood', 'Unusual color', 'Not sure'],
+    },
   ],
   'not eating': [
     { label: 'Last normal meal?', placeholder: 'When and what' },
-    { label: 'Still drinking water?', placeholder: 'Yes / a little / no' },
+    {
+      label: 'Still drinking water?',
+      options: ['Yes', 'A little', 'No'],
+    },
   ],
   'injury / limping': [
     { label: 'Which area?', placeholder: 'Leg, paw, head…' },
-    { label: 'Can they bear weight?', placeholder: 'Yes / with difficulty / no' },
+    {
+      label: 'Can they bear weight?',
+      options: ['Yes', 'With difficulty', 'No'],
+    },
   ],
   'skin / itching': [
     { label: 'Where on the body?', placeholder: 'Ears, belly, paws…' },
-    { label: 'Any hair loss or sores?', placeholder: 'Describe' },
+    {
+      label: 'Any hair loss or sores?',
+      options: ['No', 'Hair loss', 'Sores', 'Both', 'Not sure'],
+    },
   ],
   'ear / eye': [
-    { label: 'Which side?', placeholder: 'Left / right / both' },
-    { label: 'Discharge or odor?', placeholder: 'Describe' },
+    {
+      label: 'Which side?',
+      options: ['Left', 'Right', 'Both'],
+    },
+    {
+      label: 'Discharge or odor?',
+      options: ['No', 'Discharge', 'Odor', 'Both'],
+    },
   ],
   dental: [
     { label: 'Breath / chewing issues?', placeholder: 'Describe' },
-    { label: 'Visible broken tooth or swelling?', placeholder: 'Yes / no / unsure' },
+    {
+      label: 'Visible broken tooth or swelling?',
+      options: ['Yes', 'No', 'Unsure'],
+    },
   ],
   vaccination: [{ label: 'Which vaccines needed?', placeholder: 'e.g. annual boosters' }],
   'routine checkup': [{ label: 'Anything you want checked?', placeholder: 'Optional notes' }],
@@ -54,9 +85,9 @@ const INTAKE: Record<string, { label: string; placeholder: string }[]> = {
 };
 
 const STEP_TITLES: Record<number, { title: string; sub: string }> = {
-  1: { title: 'Who needs care?', sub: 'Pick the pet this visit is for.' },
+  1: { title: 'Who needs care?', sub: 'Pick one or more pets for this home visit.' },
   2: { title: 'What’s going on?', sub: 'A quick reason helps us prepare the right vet.' },
-  3: { title: 'A little more detail', sub: 'Optional context — not a diagnosis.' },
+  3: { title: 'A little more detail', sub: 'Answer the quick questions so we can prepare the right vet.' },
   4: { title: 'Where should we come?', sub: 'Home visits happen at your place.' },
   5: { title: 'When works?', sub: 'We’ll confirm the slot with the care team.' },
   6: {
@@ -64,6 +95,15 @@ const STEP_TITLES: Record<number, { title: string; sub: string }> = {
     sub: 'We’ll match the best available vet nearby — no picking required.',
   },
 };
+
+const STEP_NODES = [
+  { n: 1, label: 'Pet' },
+  { n: 2, label: 'Reason' },
+  { n: 3, label: 'Details' },
+  { n: 4, label: 'Address' },
+  { n: 5, label: 'Time' },
+  { n: 6, label: 'Review' },
+];
 
 const TIME_SLOTS = [
   '9:00 AM',
@@ -76,22 +116,90 @@ const TIME_SLOTS = [
   '8:00 PM',
 ];
 
+/** Base home-visit consultation shown on review (diagnostics/meds extra). */
+const CONSULT_FEE = '₹799';
+const CONSULT_FEE_NOTE =
+  'Base home-visit consultation. Diagnostics, procedures, or medicines are billed separately if needed.';
+
+const INDIAN_STATES = [
+  'Andhra Pradesh',
+  'Delhi',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Karnataka',
+  'Kerala',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Punjab',
+  'Rajasthan',
+  'Tamil Nadu',
+  'Telangana',
+  'Uttar Pradesh',
+  'West Bengal',
+  'Other',
+];
+
 @Component({
   standalone: true,
   imports: [FormsModule, RouterLink],
   selector: 'app-book-wizard',
   template: `
-    <a routerLink="/" class="vos-back"><span class="vos-back__chev" aria-hidden="true">‹</span> Home</a>
+    <button type="button" class="vos-back" (click)="onTopBack()">
+      <span class="vos-back__chev" aria-hidden="true">‹</span>
+      {{ step() > 1 ? 'Back' : 'Home' }}
+    </button>
 
     <header class="head">
       <p class="head__kicker">Book a home visit</p>
       <h1>{{ meta().title }}</h1>
       <p class="head__sub">{{ meta().sub }}</p>
-      <div class="progress" role="progressbar" [attr.aria-valuenow]="step()" aria-valuemin="1" aria-valuemax="6">
-        <span [style.width.%]="(step() / 6) * 100"></span>
+
+      <nav class="stepper" aria-label="Booking progress">
+        @for (node of stepNodes; track node.n; let i = $index) {
+          <div
+            class="stepper__node"
+            [class.stepper__node--done]="step() > node.n"
+            [class.stepper__node--current]="step() === node.n"
+          >
+            <span class="stepper__dot" aria-hidden="true">
+              @if (step() > node.n) { ✓ } @else { {{ node.n }} }
+            </span>
+            <span class="stepper__label">{{ node.label }}</span>
+          </div>
+          @if (i < stepNodes.length - 1) {
+            <span
+              class="stepper__rail"
+              [class.stepper__rail--on]="step() > node.n"
+              aria-hidden="true"
+            ></span>
+          }
+        }
+      </nav>
+      <div
+        class="progress"
+        role="progressbar"
+        [attr.aria-valuenow]="progressPercent()"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        [attr.aria-label]="'Booking ' + progressPercent() + ' percent complete'"
+      >
+        <span [style.width.%]="progressPercent()"></span>
       </div>
-      <p class="progress__label">Step {{ step() }} of 6</p>
+      <p class="progress__label">Step {{ step() }} of 6 · {{ progressPercent() }}%</p>
     </header>
+
+    @if (exitOpen()) {
+      <div class="modal-backdrop" (click)="exitOpen.set(false)"></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="exit-title">
+        <h2 id="exit-title">Leave booking?</h2>
+        <p>Your progress on this visit draft will be discarded.</p>
+        <div class="modal__actions">
+          <button type="button" class="ghost" (click)="exitOpen.set(false)">Keep booking</button>
+          <a class="btn btn--danger" routerLink="/home">Discard &amp; go home</a>
+        </div>
+      </div>
+    }
 
     @if (error()) {
       <div class="vos-err" role="alert">
@@ -126,9 +234,16 @@ const TIME_SLOTS = [
               <a class="btn" routerLink="/pets/new">Add a pet</a>
             </div>
           } @else {
+            <p class="hint">Select every pet who needs care on this visit</p>
             <div class="chips">
               @for (p of pets(); track p.id) {
-                <button type="button" class="chip" [class.on]="petId === p.id" (click)="pickPet(p.id)">
+                <button
+                  type="button"
+                  class="chip"
+                  [class.on]="isPetOn(p.id)"
+                  [attr.aria-pressed]="isPetOn(p.id)"
+                  (click)="togglePet(p.id)"
+                >
                   <span class="chip__mono">{{ (p.name || '?').charAt(0) }}</span>
                   <span>
                     <strong>{{ p.name }}</strong>
@@ -137,36 +252,87 @@ const TIME_SLOTS = [
                 </button>
               }
             </div>
+            @if (conflictBooking(); as conflict) {
+              <div class="conflict" role="status">
+                <p>
+                  <strong>{{ conflict.petName || 'This pet' }}</strong> already has an active visit
+                  ({{ conflict.scheduledDate || 'upcoming' }}{{ conflict.scheduledTime ? ' · ' + conflict.scheduledTime : '' }}).
+                </p>
+                <div class="conflict__actions">
+                  <a class="btn" [routerLink]="['/bookings', conflict.id]">Open existing visit</a>
+                  <button type="button" class="ghost" (click)="allowOverlap.set(true)">Book anyway</button>
+                </div>
+              </div>
+            }
           }
           <div class="nav">
-            <button type="button" class="btn" [disabled]="!petId || sessionExpired()" (click)="go(2)">Continue</button>
+            <button
+              type="button"
+              class="btn"
+              [disabled]="!petIds.length || sessionExpired() || (!!conflictBooking() && !allowOverlap())"
+              (click)="go(2)"
+            >Continue</button>
           </div>
         }
 
         @if (step() === 2) {
-          <div class="pills">
+          <p class="hint">Select every symptom that applies</p>
+          <div class="pills" role="group" aria-label="Symptoms">
             @for (r of reasons; track r) {
-              <button type="button" class="pill" [class.on]="reason === r" (click)="onReason(r)">
+              <button
+                type="button"
+                class="pill"
+                [class.on]="isReasonOn(r)"
+                [attr.aria-pressed]="isReasonOn(r)"
+                (click)="toggleReason(r)"
+              >
                 {{ pretty(r) }}
               </button>
             }
           </div>
           <div class="nav">
             <button type="button" class="ghost" (click)="go(1)">Back</button>
-            <button type="button" class="btn" [disabled]="!reason" (click)="go(3)">Continue</button>
+            <button type="button" class="btn" [disabled]="!reasonsSelected.length" (click)="go(3)">Continue</button>
           </div>
         }
 
         @if (step() === 3) {
           <div class="fields">
-            @for (q of intakeQs(); track q.label; let i = $index) {
-              <label class="field">
-                <span class="field__label">{{ q.label }}</span>
-                <textarea [(ngModel)]="intakeAnswers[i]" [name]="'iq' + i" rows="2" [placeholder]="q.placeholder"></textarea>
-              </label>
+            @for (q of intakeQs(); track q.label) {
+              <div class="field">
+                <span class="field__label">
+                  {{ q.label }}
+                  @if (q.options?.length) {
+                    <span class="req" aria-hidden="true">*</span>
+                  }
+                </span>
+                @if (q.options?.length) {
+                  <div class="pills" role="group" [attr.aria-label]="q.label">
+                    @for (opt of q.options; track opt) {
+                      <button
+                        type="button"
+                        class="pill"
+                        [class.on]="intakeAnswerMap[q.label] === opt"
+                        (click)="setIntakeAnswer(q.label, opt)"
+                      >{{ opt }}</button>
+                    }
+                  </div>
+                  @if (fieldError() === q.label) {
+                    <span class="field-err">Please choose an option</span>
+                  }
+                } @else {
+                  <textarea
+                    [ngModel]="intakeAnswerMap[q.label] || ''"
+                    (ngModelChange)="setIntakeAnswer(q.label, $event)"
+                    [name]="'iq-' + q.label"
+                    rows="2"
+                    [placeholder]="q.placeholder || ''"
+                  ></textarea>
+                }
+              </div>
             }
             <label class="field">
-              <span class="field__label">Anything else?</span>
+              <span class="field__label">Anything else? <em>(optional)</em></span>
               <textarea [(ngModel)]="intakeExtra" name="intakeExtra" rows="2" placeholder="Optional notes"></textarea>
             </label>
             <div class="field">
@@ -186,70 +352,254 @@ const TIME_SLOTS = [
           </div>
           <div class="nav">
             <button type="button" class="ghost" (click)="go(2)">Back</button>
-            <button type="button" class="btn" (click)="go(4)">Continue</button>
+            <button type="button" class="btn" [disabled]="!canContinueIntake()" (click)="go(4)">Continue</button>
           </div>
         }
 
         @if (step() === 4) {
-          @if (addresses().length) {
-            <p class="hint">Saved places</p>
-            <div class="chips">
-              @for (a of addresses(); track a.id) {
-                <button type="button" class="chip chip--block" [class.on]="address === a.address" (click)="pickAddress(a)">
-                  <strong>{{ a.label || 'Home' }}</strong>
-                  <em>{{ a.address }}</em>
-                </button>
-              }
+          <div class="addr-block">
+            <div class="addr-block__head">
+              <p class="hint">Saved addresses</p>
+              <a routerLink="/addresses" class="addr-link">Add / manage</a>
             </div>
+            @if (addresses().length) {
+              <div class="chips">
+                @for (a of addresses(); track a.id) {
+                  <button
+                    type="button"
+                    class="chip chip--block"
+                    [class.on]="selectedSavedId === a.id"
+                    (click)="pickAddress(a)"
+                  >
+                    <strong>{{ a.label || 'Home' }}@if (a.isDefault) { <span class="chip-tag">Default</span> }</strong>
+                    <em>{{ a.address }}</em>
+                  </button>
+                }
+              </div>
+            } @else {
+              <p class="addr-empty">No saved places yet — enter the visit address below, or <a routerLink="/addresses">save one for next time</a>.</p>
+            }
+          </div>
+
+          <p class="hint hint--spaced">{{ selectedSavedId ? 'Or enter a different address' : 'Visit address' }}</p>
+          <div class="fields addr-grid">
+            <label class="field field--full">
+              <span class="field__label">Street address <span class="req" aria-hidden="true">*</span></span>
+              <input
+                type="text"
+                [(ngModel)]="addrStreet"
+                name="addrStreet"
+                required
+                placeholder="House / flat, street, landmark"
+                (ngModelChange)="onStructuredAddressEdit()"
+              />
+            </label>
+            <label class="field">
+              <span class="field__label">Apartment / suite</span>
+              <input
+                type="text"
+                [(ngModel)]="addrApt"
+                name="addrApt"
+                placeholder="Optional"
+                (ngModelChange)="onStructuredAddressEdit()"
+              />
+            </label>
+            <label class="field">
+              <span class="field__label">City <span class="req" aria-hidden="true">*</span></span>
+              <input
+                type="text"
+                [(ngModel)]="addrCity"
+                name="addrCity"
+                required
+                placeholder="e.g. Bengaluru"
+                (ngModelChange)="onStructuredAddressEdit()"
+              />
+            </label>
+            <div class="field">
+              <span class="field__label">State <span class="req" aria-hidden="true">*</span></span>
+              <div class="dd" [class.dd--open]="stateOpen()">
+                <button
+                  type="button"
+                  class="dd__trigger"
+                  [attr.aria-expanded]="stateOpen()"
+                  aria-haspopup="listbox"
+                  (click)="toggleStateDd($event)"
+                >
+                  <span [class.dd__placeholder]="!addrState">{{ addrState || 'Select state' }}</span>
+                  <span class="dd__chev" aria-hidden="true">▾</span>
+                </button>
+                @if (stateOpen()) {
+                  <ul class="dd__menu" role="listbox" (click)="$event.stopPropagation()">
+                    @for (s of states; track s) {
+                      <li role="none">
+                        <button
+                          type="button"
+                          class="dd__opt"
+                          role="option"
+                          [attr.aria-selected]="addrState === s"
+                          [class.on]="addrState === s"
+                          (click)="pickState(s)"
+                        >{{ s }}</button>
+                      </li>
+                    }
+                  </ul>
+                }
+              </div>
+            </div>
+            <label class="field">
+              <span class="field__label">PIN code <span class="req" aria-hidden="true">*</span></span>
+              <input
+                type="text"
+                [(ngModel)]="addrPin"
+                name="addrPin"
+                required
+                inputmode="numeric"
+                maxlength="6"
+                placeholder="6-digit PIN"
+                (ngModelChange)="onStructuredAddressEdit()"
+              />
+            </label>
+          </div>
+          @if (fieldError() === 'address') {
+            <span class="field-err">Enter a complete address (street, city, state, PIN) or pick a saved place.</span>
           }
-          <label class="field">
-            <span class="field__label">Address</span>
-            <textarea [(ngModel)]="address" name="address" rows="3" required placeholder="Flat, street, landmark"></textarea>
-          </label>
           <div class="nav">
             <button type="button" class="ghost" (click)="go(3)">Back</button>
-            <button type="button" class="btn" [disabled]="!address.trim()" (click)="go(5)">Continue</button>
+            <button type="button" class="btn" [disabled]="!canContinueAddress()" (click)="go(5)">Continue</button>
           </div>
         }
 
         @if (step() === 5) {
           <div class="fields">
-            <label class="field">
-              <span class="field__label">Date</span>
-              <input type="date" [(ngModel)]="preferredDate" name="preferredDate" [min]="minDate" />
-            </label>
             <div class="field">
-              <span class="field__label">Time</span>
-              <div class="pills">
-                @for (t of timeSlots; track t) {
-                  <button type="button" class="pill" [class.on]="preferredTime === t" (click)="preferredTime = t">
-                    {{ t }}
-                  </button>
+              <span class="field__label">Date <span class="req" aria-hidden="true">*</span></span>
+              <div class="dd dd--cal" [class.dd--open]="calOpen()">
+                <button
+                  type="button"
+                  class="dd__trigger"
+                  [attr.aria-expanded]="calOpen()"
+                  aria-haspopup="dialog"
+                  (click)="toggleCalDd($event)"
+                >
+                  <span [class.dd__placeholder]="!preferredDate">{{ dateTriggerLabel() }}</span>
+                  <span class="dd__chev" aria-hidden="true">▾</span>
+                </button>
+                @if (calOpen()) {
+                  <div class="dd__menu dd__menu--cal" role="dialog" aria-label="Calendar" (click)="$event.stopPropagation()">
+                    <div class="cal">
+                      <div class="cal__head">
+                        <button type="button" class="cal__nav" (click)="shiftMonth(-1)" aria-label="Previous month">‹</button>
+                        <strong>{{ calLabel() }}</strong>
+                        <button type="button" class="cal__nav" (click)="shiftMonth(1)" aria-label="Next month">›</button>
+                      </div>
+                      <div class="cal__dow" aria-hidden="true">
+                        @for (d of dow; track d) { <span>{{ d }}</span> }
+                      </div>
+                      <div class="cal__grid">
+                        @for (cell of calDays(); track cell.key) {
+                          @if (cell.blank) {
+                            <span class="cal__blank"></span>
+                          } @else {
+                            <button
+                              type="button"
+                              class="cal__day"
+                              [class.on]="cell.iso === preferredDate"
+                              [class.today]="cell.iso === minDate"
+                              [disabled]="cell.past"
+                              (click)="pickDate(cell.iso!)"
+                            >{{ cell.n }}</button>
+                          }
+                        }
+                      </div>
+                    </div>
+                  </div>
                 }
               </div>
+              @if (fieldError() === 'date') {
+                <span class="field-err">Pick a date for the visit</span>
+              }
+            </div>
+            <div class="field">
+              <span class="field__label">Time <span class="req" aria-hidden="true">*</span></span>
+              <div class="dd" [class.dd--open]="timeOpen()">
+                <button
+                  type="button"
+                  class="dd__trigger"
+                  [attr.aria-expanded]="timeOpen()"
+                  aria-haspopup="listbox"
+                  (click)="toggleTimeDd($event)"
+                >
+                  <span [class.dd__placeholder]="!preferredTime">{{ preferredTime || 'Select time' }}</span>
+                  <span class="dd__chev" aria-hidden="true">▾</span>
+                </button>
+                @if (timeOpen()) {
+                  <ul class="dd__menu" role="listbox" (click)="$event.stopPropagation()">
+                    @for (t of timeSlots; track t) {
+                      <li role="none">
+                        <button
+                          type="button"
+                          class="dd__opt"
+                          role="option"
+                          [attr.aria-selected]="preferredTime === t"
+                          [class.on]="preferredTime === t"
+                          [disabled]="isSlotPast(t)"
+                          (click)="pickTime(t)"
+                        >{{ t }}@if (isSlotPast(t)) { <em>Passed</em> }</button>
+                      </li>
+                    }
+                  </ul>
+                }
+              </div>
+              @if (preferredDate === minDate) {
+                <p class="slot-hint">Past times for today are unavailable.</p>
+              }
+              @if (fieldError() === 'time') {
+                <span class="field-err">{{ timeErrorMessage() }}</span>
+              }
             </div>
           </div>
           <div class="nav">
             <button type="button" class="ghost" (click)="go(4)">Back</button>
-            <button type="button" class="btn" [disabled]="!preferredDate || !preferredTime" (click)="go(6)">Review</button>
+            <button
+              type="button"
+              class="btn"
+              [disabled]="!preferredDate || !preferredTime || isSlotPast(preferredTime)"
+              (click)="go(6)"
+            >Review</button>
           </div>
         }
 
         @if (step() === 6) {
           <div class="review">
-            <div><em>Pet</em><strong>{{ petName() }}</strong></div>
-            <div><em>Reason</em><strong>{{ pretty(reason) }}</strong></div>
-            <div><em>Details</em><strong>{{ intakeText() || '—' }}</strong></div>
-            <div><em>Where</em><strong>{{ address }}</strong></div>
-            <div><em>When</em><strong>{{ preferredDate }} · {{ preferredTime }}</strong></div>
-            <div>
+            <div class="review__row">
+              <div class="review__meta"><em>Pet</em><button type="button" class="review__edit" (click)="go(1)">Edit</button></div>
+              <strong>{{ petNames() }}</strong>
+            </div>
+            <div class="review__row">
+              <div class="review__meta"><em>Reason</em><button type="button" class="review__edit" (click)="go(2)">Edit</button></div>
+              <strong>{{ reasonLabel() }}</strong>
+            </div>
+            <div class="review__row">
+              <div class="review__meta"><em>Details</em><button type="button" class="review__edit" (click)="go(3)">Edit</button></div>
+              <strong>{{ detailsForReview() }}</strong>
+            </div>
+            <div class="review__row">
+              <div class="review__meta"><em>Where</em><button type="button" class="review__edit" (click)="go(4)">Edit</button></div>
+              <strong>{{ composedAddress() }}</strong>
+            </div>
+            <div class="review__row">
+              <div class="review__meta"><em>When</em><button type="button" class="review__edit" (click)="go(5)">Edit</button></div>
+              <strong>{{ formatWhen() }}</strong>
+            </div>
+            <div class="review__row">
               <em>Doctor</em>
               <strong>Best available match — assigned by our care team</strong>
             </div>
             <div class="review__pay">
               <em>Payment</em>
-              <strong>Pay later</strong>
-              <span>You’ll pay when the veterinarian arrives at home — nothing charged to book.</span>
+              <strong>Pay later · {{ consultFee }}</strong>
+              <span>{{ consultFeeNote }}</span>
+              <span>You’ll pay when the veterinarian arrives — nothing charged to book.</span>
             </div>
           </div>
           <div class="nav">
@@ -268,15 +618,15 @@ const TIME_SLOTS = [
     }
   `,
   styles: [`
-    .head { margin-bottom: 18px; animation: rise 0.4s ease both; }
+    .head { margin-bottom: 22px; animation: rise 0.4s var(--vos-ease, ease) both; }
     .head__kicker {
-      margin: 0 0 6px;
+      margin: 0 0 8px;
       font-family: var(--vos-mono);
       font-size: 11px;
       letter-spacing: 0.16em;
       text-transform: uppercase;
       color: var(--vos-brand);
-      font-weight: 600;
+      font-weight: 700;
     }
     .head h1 {
       margin: 0 0 8px;
@@ -292,6 +642,58 @@ const TIME_SLOTS = [
       line-height: 1.4;
       max-width: 40ch;
     }
+    .stepper {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0;
+      margin: 0 0 14px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    .stepper__node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-width: 44px;
+      flex: 0 0 auto;
+    }
+    .stepper__dot {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 800;
+      background: #f0ece4; color: var(--vos-ink-muted);
+      border: 1.5px solid transparent;
+    }
+    .stepper__node--current .stepper__dot {
+      background: var(--vos-brand); color: #fff;
+      box-shadow: 0 6px 14px rgba(253, 74, 41, 0.28);
+    }
+    .stepper__node--done .stepper__dot {
+      background: #0a0a0a; color: #fff;
+    }
+    .stepper__label {
+      font-family: var(--vos-mono);
+      font-size: 9px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--vos-ink-muted);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .stepper__node--current .stepper__label,
+    .stepper__node--done .stepper__label {
+      color: var(--vos-ink);
+    }
+    .stepper__rail {
+      flex: 1 1 12px;
+      height: 2px;
+      margin-top: 13px;
+      background: rgba(20, 16, 12, 0.1);
+      min-width: 8px;
+    }
+    .stepper__rail--on { background: #0a0a0a; }
     .progress {
       height: 6px;
       border-radius: 999px;
@@ -316,13 +718,66 @@ const TIME_SLOTS = [
       background: #fff;
       border: 1px solid var(--vos-border);
       border-radius: 22px;
-      padding: 22px 20px 20px;
+      padding: 24px 22px 22px;
       box-shadow: 0 12px 32px rgba(20, 16, 12, 0.05);
       margin-bottom: 28px;
+      min-height: 320px;
+      display: flex;
+      flex-direction: column;
     }
-    .panel--boot { display: grid; gap: 12px; }
+    .panel .nav { margin-top: auto; padding-top: 24px; }
+    .panel--boot { display: grid; gap: 12px; min-height: 200px; }
     .boot-row { height: 64px; border-radius: 16px; margin: 0; }
     .boot-row--short { width: 62%; }
+
+    .conflict {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: #fff7ed;
+      border: 1px solid rgba(253, 74, 41, 0.28);
+    }
+    .conflict p { margin: 0 0 12px; font-size: 0.95rem; line-height: 1.45; color: var(--vos-ink); }
+    .conflict__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .conflict__actions .btn,
+    .conflict__actions .ghost { min-height: 42px; padding: 10px 16px; font-size: 0.92rem; text-decoration: none; }
+
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 80;
+      background: rgba(10, 10, 10, 0.45);
+      backdrop-filter: blur(4px);
+    }
+    .modal {
+      position: fixed; z-index: 81;
+      left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(420px, calc(100vw - 32px));
+      padding: 24px 22px;
+      border-radius: 20px;
+      background: #fff;
+      border: 1px solid var(--vos-border);
+      box-shadow: 0 24px 60px rgba(10, 10, 10, 0.22);
+    }
+    .modal h2 {
+      margin: 0 0 8px;
+      font-family: var(--vos-display);
+      font-size: 1.35rem;
+      letter-spacing: -0.03em;
+    }
+    .modal p {
+      margin: 0 0 18px;
+      color: var(--vos-ink-muted);
+      line-height: 1.45;
+    }
+    .modal__actions {
+      display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end;
+    }
+    .modal__actions .btn,
+    .modal__actions .ghost { text-decoration: none; }
+    .btn--danger {
+      background: #0a0a0a !important;
+      box-shadow: none !important;
+    }
 
     .chips { display: grid; gap: 10px; }
     .chip {
@@ -410,6 +865,19 @@ const TIME_SLOTS = [
       font-family: var(--vos-font);
       font-size: 0.85rem;
     }
+    .req {
+      color: var(--vos-brand);
+      margin-left: 2px;
+      font-weight: 800;
+    }
+    .field-err {
+      display: block;
+      margin-top: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #b42318;
+    }
+    .field .pills { margin-top: 2px; }
     .field input, .field textarea {
       width: 100%;
       padding: 14px 16px;
@@ -495,6 +963,209 @@ const TIME_SLOTS = [
       color: var(--vos-ink-muted);
       font-weight: 600;
     }
+    .hint--spaced { margin-top: 18px; }
+    .addr-block { margin-bottom: 4px; }
+    .addr-block__head {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    }
+    .addr-block__head .hint { margin-bottom: 10px; }
+    .addr-link {
+      font-size: 0.88rem; font-weight: 700; color: var(--vos-brand);
+      text-decoration: none; white-space: nowrap;
+    }
+    .addr-link:hover { text-decoration: underline; }
+    .addr-empty {
+      margin: 0 0 8px; padding: 12px 14px; border-radius: 14px;
+      background: #faf8f4; border: 1px dashed var(--vos-border);
+      font-size: 0.92rem; color: var(--vos-ink-muted); line-height: 1.45;
+    }
+    .addr-empty a { color: var(--vos-brand); font-weight: 700; }
+    .chip-tag {
+      display: inline-block; margin-left: 6px; padding: 1px 7px;
+      border-radius: 999px; font-size: 0.7rem; font-weight: 700;
+      background: var(--vos-brand-soft); color: var(--vos-brand);
+      vertical-align: middle;
+    }
+    .addr-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+    .addr-grid .field--full { grid-column: 1 / -1; }
+    @media (max-width: 560px) {
+      .addr-grid { grid-template-columns: 1fr; }
+    }
+    .field select {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid var(--vos-border);
+      background: #faf8f4;
+      font-size: 1.02rem;
+      font-family: inherit;
+      color: var(--vos-ink);
+      box-sizing: border-box;
+      min-height: 52px;
+    }
+    .field select:focus {
+      outline: none;
+      background: #fff;
+      border-color: rgba(253, 74, 41, 0.45);
+      box-shadow: 0 0 0 4px rgba(253, 74, 41, 0.12);
+    }
+
+    .dd {
+      position: relative;
+      width: 100%;
+    }
+    .dd__trigger {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid var(--vos-border);
+      background: #faf8f4;
+      font-size: 1.02rem;
+      font-family: inherit;
+      font-weight: 600;
+      color: var(--vos-ink);
+      box-sizing: border-box;
+      min-height: 52px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .dd__trigger:hover {
+      border-color: rgba(253, 74, 41, 0.35);
+    }
+    .dd--open .dd__trigger {
+      background: #fff;
+      border-color: rgba(253, 74, 41, 0.45);
+      box-shadow: 0 0 0 4px rgba(253, 74, 41, 0.12);
+    }
+    .dd__placeholder { color: #9a968e; font-weight: 500; }
+    .dd__chev {
+      flex-shrink: 0;
+      font-size: 0.85rem;
+      color: var(--vos-ink-muted);
+      transition: transform 0.15s ease;
+    }
+    .dd--open .dd__chev { transform: rotate(180deg); color: var(--vos-brand); }
+    .dd__menu {
+      position: absolute;
+      left: 0; right: 0; top: calc(100% + 6px);
+      z-index: 40;
+      margin: 0; padding: 8px;
+      list-style: none;
+      max-height: 260px;
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid var(--vos-border);
+      background: #fff;
+      box-shadow: 0 16px 40px rgba(10, 10, 10, 0.14);
+      animation: ddIn 0.16s var(--vos-ease, ease) both;
+    }
+    .dd__menu--cal {
+      padding: 10px;
+      max-height: none;
+      overflow: visible;
+    }
+    @keyframes ddIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .dd__opt {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      font: inherit;
+      font-weight: 600;
+      font-size: 0.98rem;
+      color: var(--vos-ink);
+      text-align: left;
+      cursor: pointer;
+    }
+    .dd__opt:hover:not(:disabled) { background: rgba(253, 74, 41, 0.08); }
+    .dd__opt.on {
+      background: #0a0a0a;
+      color: #fff;
+    }
+    .dd__opt:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      text-decoration: line-through;
+    }
+    .dd__opt em {
+      font-style: normal;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      opacity: 0.85;
+    }
+
+    .cal {
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      padding: 2px;
+    }
+    .cal__head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .cal__head strong {
+      font-family: var(--vos-display);
+      font-size: 1.05rem;
+      letter-spacing: -0.02em;
+    }
+    .cal__nav {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 1px solid var(--vos-border); background: #fff;
+      font-size: 1.25rem; line-height: 1; cursor: pointer; color: var(--vos-ink);
+    }
+    .cal__nav:hover { border-color: rgba(253, 74, 41, 0.4); }
+    .cal__dow {
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+      margin-bottom: 4px;
+      text-align: center;
+      font-family: var(--vos-mono); font-size: 10px; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--vos-ink-muted); font-weight: 700;
+    }
+    .cal__grid {
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+    }
+    .cal__blank { min-height: 40px; }
+    .cal__day {
+      min-height: 40px; border-radius: 12px; border: 0;
+      background: transparent; font: inherit; font-weight: 700;
+      cursor: pointer; color: var(--vos-ink);
+    }
+    .cal__day:hover:not(:disabled) { background: rgba(253, 74, 41, 0.1); }
+    .cal__day.today { box-shadow: inset 0 0 0 1.5px rgba(253, 74, 41, 0.45); }
+    .cal__day.on {
+      background: #0a0a0a; color: #fff;
+    }
+    .cal__day:disabled {
+      color: #c4bfb6; cursor: not-allowed; opacity: 0.7;
+    }
+    .pill:disabled {
+      opacity: 0.35; cursor: not-allowed; text-decoration: line-through;
+    }
+    .slot-hint {
+      margin: 8px 0 0;
+      font-size: 0.85rem;
+      color: var(--vos-ink-muted);
+      font-weight: 500;
+    }
+
     .empty-state { text-align: center; padding: 12px 8px 4px; }
     .empty-state__title {
       margin: 0 0 6px;
@@ -517,12 +1188,15 @@ const TIME_SLOTS = [
     }
 
     .review { display: grid; gap: 12px; }
-    .review > div {
+    .review__row {
       display: grid; gap: 4px;
       padding-bottom: 12px;
       border-bottom: 1px solid var(--vos-border);
     }
-    .review > div:last-child { border-bottom: 0; padding-bottom: 0; }
+    .review__row:last-child { border-bottom: 0; padding-bottom: 0; }
+    .review__meta {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
     .review em {
       font-style: normal;
       font-family: var(--vos-mono);
@@ -531,6 +1205,12 @@ const TIME_SLOTS = [
       text-transform: uppercase;
       color: var(--vos-ink-muted);
       font-weight: 600;
+    }
+    .review__edit {
+      border: 0; background: none; padding: 0;
+      font: inherit; font-size: 0.85rem; font-weight: 700;
+      color: var(--vos-brand); cursor: pointer; text-decoration: underline;
+      text-underline-offset: 2px;
     }
     .review strong {
       font-family: var(--vos-display);
@@ -546,6 +1226,7 @@ const TIME_SLOTS = [
       border-radius: 14px;
       padding: 14px 14px !important;
       margin-top: 4px;
+      display: grid; gap: 4px;
     }
     .review__pay strong { color: var(--vos-brand); }
     .review__pay span {
@@ -602,25 +1283,44 @@ const TIME_SLOTS = [
 export class BookWizardComponent implements OnInit {
   reasons = REASONS;
   timeSlots = TIME_SLOTS;
+  states = INDIAN_STATES;
+  stepNodes = STEP_NODES;
+  dow = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  consultFee = CONSULT_FEE;
+  consultFeeNote = CONSULT_FEE_NOTE;
   readonly step = signal(1);
   readonly pets = signal<any[]>([]);
   readonly addresses = signal<any[]>([]);
+  readonly activeBookings = signal<any[]>([]);
   readonly submitting = signal(false);
   readonly error = signal('');
   readonly photoPreview = signal('');
   readonly booting = signal(true);
   readonly sessionExpired = signal(false);
-  petId = '';
-  reason = '';
-  intakeAnswers: string[] = [];
+  readonly exitOpen = signal(false);
+  readonly allowOverlap = signal(false);
+  petIds: string[] = [];
+  reasonsSelected: string[] = [];
+  intakeAnswerMap: Record<string, string> = {};
   intakeExtra = '';
-  address = '';
+  selectedSavedId = '';
+  addrStreet = '';
+  addrApt = '';
+  addrCity = '';
+  addrState = '';
+  addrPin = '';
   preferredDate = '';
-  preferredTime = '10:00 AM';
+  preferredTime = '';
   consultationType = 'Home Visit';
   photoFile: File | null = null;
   minDate = '';
+  /** Calendar month cursor (1st of month). */
+  calCursor = new Date();
   private idempotencyKey = '';
+  readonly fieldError = signal('');
+  readonly stateOpen = signal(false);
+  readonly calOpen = signal(false);
+  readonly timeOpen = signal(false);
 
   constructor(
     private api: CustomerApiService,
@@ -630,14 +1330,86 @@ export class BookWizardComponent implements OnInit {
     private auth: AuthService,
   ) {}
 
+  @HostListener('document:click')
+  onDocClick() {
+    this.closeDropdowns();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape() {
+    this.closeDropdowns();
+  }
+
+  closeDropdowns() {
+    this.stateOpen.set(false);
+    this.calOpen.set(false);
+    this.timeOpen.set(false);
+  }
+
+  toggleStateDd(ev: Event) {
+    ev.stopPropagation();
+    const next = !this.stateOpen();
+    this.closeDropdowns();
+    this.stateOpen.set(next);
+  }
+
+  toggleCalDd(ev: Event) {
+    ev.stopPropagation();
+    const next = !this.calOpen();
+    this.closeDropdowns();
+    this.calOpen.set(next);
+    if (next && this.preferredDate) {
+      const [y, m] = this.preferredDate.split('-').map(Number);
+      this.calCursor = new Date(y, (m || 1) - 1, 1);
+    }
+  }
+
+  toggleTimeDd(ev: Event) {
+    ev.stopPropagation();
+    const next = !this.timeOpen();
+    this.closeDropdowns();
+    this.timeOpen.set(next);
+  }
+
+  pickState(s: string) {
+    this.addrState = s;
+    this.onStructuredAddressEdit();
+    this.stateOpen.set(false);
+  }
+
+  dateTriggerLabel() {
+    if (!this.preferredDate) return 'Select date';
+    const [y, m, d] = this.preferredDate.split('-').map(Number);
+    const dt = new Date(y, (m || 1) - 1, d || 1);
+    return dt.toLocaleDateString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+
   meta() {
     return STEP_TITLES[this.step()] || STEP_TITLES[1];
   }
 
+  progressPercent() {
+    return Math.round((this.step() / 6) * 100);
+  }
+
+  onTopBack() {
+    if (this.step() > 1) {
+      this.go(this.step() - 1);
+      return;
+    }
+    this.exitOpen.set(true);
+  }
+
   ngOnInit() {
     const today = new Date();
-    this.minDate = today.toISOString().slice(0, 10);
-    this.preferredDate = this.minDate;
+    this.minDate = this.toIsoDate(today);
+    this.calCursor = new Date(today.getFullYear(), today.getMonth(), 1);
+    this.preferredDate = '';
     void this.reload();
   }
 
@@ -653,24 +1425,32 @@ export class BookWizardComponent implements OnInit {
         return;
       }
 
-      // Force a fresh token before the pets call so we don’t flash “no pets” on expiry.
       await this.auth.getIdTokenFresh(true);
 
-      const [pets, me, addrs] = await Promise.all([
+      const [pets, me, addrsRaw, bookingsRaw] = await Promise.all([
         this.api.pets(),
         this.api.me(),
         this.api.addresses().catch(() => []),
+        this.api.bookings().catch(() => []),
       ]);
       this.pets.set(pets || []);
-      this.addresses.set(addrs || []);
-      const def = (addrs || []).find((a: any) => a.isDefault);
-      this.address = def?.address || me.address || '';
+      const addrs = this.normalizeAddresses(addrsRaw);
+      this.addresses.set(addrs);
+      this.activeBookings.set(this.normalizeBookings(bookingsRaw).filter((b) => this.isActiveBooking(b)));
+      const def = addrs.find((a: any) => a.isDefault) || addrs[0];
+      if (def) {
+        this.applySavedAddress(def);
+      } else if (me?.address) {
+        this.addrStreet = String(me.address);
+      }
       const q = this.route.snapshot.queryParamMap.get('petId') || this.activePet.get();
-      if (q && (pets || []).some((p: any) => p.id === q)) this.petId = q;
-      else if ((pets || []).length === 1) this.petId = pets[0].id;
-
-      if (this.petId) {
-        this.activePet.set(this.petId);
+      if (q && (pets || []).some((p: any) => p.id === q)) {
+        this.petIds = [q];
+        this.activePet.set(q);
+        this.step.set(2);
+      } else if ((pets || []).length === 1) {
+        this.petIds = [pets[0].id];
+        this.activePet.set(pets[0].id);
         this.step.set(2);
       }
     } catch (e: any) {
@@ -689,22 +1469,114 @@ export class BookWizardComponent implements OnInit {
     }
   }
 
+  private normalizeAddresses(raw: any): any[] {
+    if (Array.isArray(raw)) return raw;
+    if (Array.isArray(raw?.items)) return raw.items;
+    if (Array.isArray(raw?.addresses)) return raw.addresses;
+    if (Array.isArray(raw?.data)) return raw.data;
+    return [];
+  }
+
+  private normalizeBookings(raw: any): any[] {
+    if (Array.isArray(raw)) return raw;
+    if (Array.isArray(raw?.items)) return raw.items;
+    if (Array.isArray(raw?.bookings)) return raw.bookings;
+    return [];
+  }
+
+  private isActiveBooking(b: any): boolean {
+    const st = String(b?.status || b?.customerStatus?.code || b?.customerStatus?.label || '').toLowerCase();
+    if (!st) return true;
+    return !/(complet|cancel|done|no.?show|closed|declined)/.test(st);
+  }
+
+  private toIsoDate(d: Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  isPetOn(id: string) {
+    return this.petIds.includes(id);
+  }
+
+  togglePet(id: string) {
+    if (this.isPetOn(id)) {
+      this.petIds = this.petIds.filter((x) => x !== id);
+    } else {
+      this.petIds = [...this.petIds, id];
+    }
+    this.allowOverlap.set(false);
+    if (this.petIds[0]) this.activePet.set(this.petIds[0]);
+  }
+
+  conflictBooking(): any | null {
+    if (this.allowOverlap()) return null;
+    for (const id of this.petIds) {
+      const hit = this.activeBookings().find((b) => b.petId === id);
+      if (hit) {
+        const pet = this.pets().find((p) => p.id === id);
+        return { ...hit, petName: hit.petName || pet?.name };
+      }
+    }
+    return null;
+  }
+
   pickPet(id: string) {
-    this.petId = id;
+    this.petIds = [id];
     this.activePet.set(id);
+    this.allowOverlap.set(false);
   }
 
   pretty(r: string) {
     return r ? r.charAt(0).toUpperCase() + r.slice(1) : r;
   }
 
-  intakeQs() {
-    return INTAKE[this.reason] || INTAKE['other'];
+  isReasonOn(r: string) {
+    return this.reasonsSelected.includes(r);
   }
 
-  onReason(r: string) {
-    this.reason = r;
-    this.intakeAnswers = this.intakeQs().map(() => '');
+  toggleReason(r: string) {
+    if (this.isReasonOn(r)) {
+      this.reasonsSelected = this.reasonsSelected.filter((x) => x !== r);
+    } else {
+      this.reasonsSelected = [...this.reasonsSelected, r];
+    }
+  }
+
+  reasonLabel() {
+    if (!this.reasonsSelected.length) return '—';
+    return this.reasonsSelected.map((r) => this.pretty(r)).join(', ');
+  }
+
+  /** Merge intake questions across all selected symptoms (unique by label). */
+  intakeQs(): IntakeQ[] {
+    const seen = new Set<string>();
+    const out: IntakeQ[] = [];
+    for (const r of this.reasonsSelected) {
+      for (const q of INTAKE[r] || INTAKE['other']) {
+        if (seen.has(q.label)) continue;
+        seen.add(q.label);
+        out.push(q);
+      }
+    }
+    return out;
+  }
+
+  setIntakeAnswer(label: string, value: string) {
+    this.intakeAnswerMap = { ...this.intakeAnswerMap, [label]: value };
+    if (this.fieldError() === label) this.fieldError.set('');
+  }
+
+  canContinueIntake() {
+    return this.intakeQs().every(
+      (q) => !q.options?.length || !!(this.intakeAnswerMap[q.label] || '').trim(),
+    );
+  }
+
+  clearFieldError() {
+    this.fieldError.set('');
   }
 
   onPhoto(ev: Event) {
@@ -714,70 +1586,303 @@ export class BookWizardComponent implements OnInit {
     this.photoPreview.set(file ? URL.createObjectURL(file) : '');
   }
 
-  pickAddress(a: any) {
-    this.address = a.address || '';
+  private applySavedAddress(a: any) {
+    this.selectedSavedId = a.id || '';
+    const text = String(a.address || '').trim();
+    // Prefer putting the full saved string in street so dispatch gets the exact saved place;
+    // clear structured extras unless we can spot a 6-digit PIN.
+    this.addrStreet = text;
+    this.addrApt = '';
+    this.addrCity = '';
+    this.addrState = '';
+    this.addrPin = '';
+    const pin = text.match(/\b(\d{6})\b/);
+    if (pin) this.addrPin = pin[1];
+    this.clearFieldError();
   }
 
+  pickAddress(a: any) {
+    this.applySavedAddress(a);
+  }
+
+  onStructuredAddressEdit() {
+    this.selectedSavedId = '';
+    this.clearFieldError();
+  }
+
+  composedAddress(): string {
+    if (this.selectedSavedId) {
+      const saved = this.addresses().find((a) => a.id === this.selectedSavedId);
+      if (saved?.address) return String(saved.address);
+    }
+    const parts = [
+      this.addrStreet.trim(),
+      this.addrApt.trim() ? `Apt ${this.addrApt.trim()}` : '',
+      [this.addrCity.trim(), this.addrState.trim()].filter(Boolean).join(', '),
+      this.addrPin.trim(),
+    ].filter(Boolean);
+    return parts.join(', ');
+  }
+
+  canContinueAddress() {
+    if (this.selectedSavedId) return true;
+    const pinOk = /^\d{6}$/.test(this.addrPin.trim());
+    return !!(
+      this.addrStreet.trim() &&
+      this.addrCity.trim() &&
+      this.addrState.trim() &&
+      pinOk
+    );
+  }
+
+  shiftMonth(delta: number) {
+    this.calCursor = new Date(this.calCursor.getFullYear(), this.calCursor.getMonth() + delta, 1);
+  }
+
+  calLabel() {
+    return this.calCursor.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+  }
+
+  calDays(): { key: string; blank?: boolean; n?: number; iso?: string; past?: boolean }[] {
+    const y = this.calCursor.getFullYear();
+    const m = this.calCursor.getMonth();
+    const firstDow = new Date(y, m, 1).getDay();
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const out: { key: string; blank?: boolean; n?: number; iso?: string; past?: boolean }[] = [];
+    for (let i = 0; i < firstDow; i++) out.push({ key: `b-${i}`, blank: true });
+    for (let d = 1; d <= daysInMonth; d++) {
+      const iso = this.toIsoDate(new Date(y, m, d));
+      out.push({ key: iso, n: d, iso, past: iso < this.minDate });
+    }
+    return out;
+  }
+
+  pickDate(iso: string) {
+    this.preferredDate = iso;
+    this.clearFieldError();
+    if (this.preferredTime && this.isSlotPast(this.preferredTime)) {
+      this.preferredTime = '';
+    }
+    this.calOpen.set(false);
+  }
+
+  pickTime(t: string) {
+    if (this.isSlotPast(t)) return;
+    this.preferredTime = t;
+    this.clearFieldError();
+    this.timeOpen.set(false);
+  }
+
+  /** Minutes from midnight for a slot like "10:00 AM". */
+  private slotMinutes(t: string): number | null {
+    const m = t.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    const ap = m[3].toUpperCase();
+    if (ap === 'PM' && h !== 12) h += 12;
+    if (ap === 'AM' && h === 12) h = 0;
+    return h * 60 + min;
+  }
+
+  isSlotPast(t: string): boolean {
+    if (!this.preferredDate || this.preferredDate !== this.minDate) return false;
+    const mins = this.slotMinutes(t);
+    if (mins == null) return false;
+    const now = new Date();
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    return mins <= nowMins;
+  }
+
+  timeErrorMessage() {
+    if (this.preferredTime && this.isSlotPast(this.preferredTime)) {
+      return 'Please select a valid future time';
+    }
+    return 'Pick a time slot for the visit';
+  }
+
+  formatWhen() {
+    if (!this.preferredDate) return '—';
+    const [y, m, d] = this.preferredDate.split('-').map(Number);
+    const dt = new Date(y, (m || 1) - 1, d || 1);
+    const datePart = dt.toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    return this.preferredTime ? `${datePart} at ${this.preferredTime}` : datePart;
+  }
+
+  /** Validate before moving forward; always allow going back. */
   go(n: number) {
-    if (this.petId) this.activePet.set(this.petId);
+    this.error.set('');
+    if (n > this.step()) {
+      if (!this.validateBefore(n)) return;
+    }
+    if (this.petIds[0]) this.activePet.set(this.petIds[0]);
+    this.fieldError.set('');
+    this.closeDropdowns();
     this.step.set(n);
+    if (n === 5 && this.preferredDate) {
+      const [y, m] = this.preferredDate.split('-').map(Number);
+      this.calCursor = new Date(y, (m || 1) - 1, 1);
+    }
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  petName() {
-    return this.pets().find((p) => p.id === this.petId)?.name || '—';
+  private validateBefore(target: number): boolean {
+    if (this.step() === 1 && target >= 2) {
+      if (!this.petIds.length) {
+        this.error.set('Select at least one pet to continue.');
+        return false;
+      }
+      if (this.conflictBooking() && !this.allowOverlap()) {
+        this.error.set('This pet already has an active visit. Open it, or choose Book anyway.');
+        return false;
+      }
+    }
+    if (this.step() === 2 && target >= 3) {
+      if (!this.reasonsSelected.length) {
+        this.error.set('Select at least one symptom to continue.');
+        return false;
+      }
+    }
+    if (this.step() === 3 && target >= 4) {
+      for (const q of this.intakeQs()) {
+        if (q.options?.length && !(this.intakeAnswerMap[q.label] || '').trim()) {
+          this.fieldError.set(q.label);
+          this.error.set(`Please answer: ${q.label}`);
+          return false;
+        }
+      }
+    }
+    if (this.step() === 4 && target >= 5) {
+      if (!this.canContinueAddress()) {
+        this.fieldError.set('address');
+        this.error.set('Enter a complete address or pick a saved place.');
+        return false;
+      }
+    }
+    if (this.step() === 5 && target >= 6) {
+      if (!this.preferredDate) {
+        this.fieldError.set('date');
+        this.error.set('Pick a date for the visit.');
+        return false;
+      }
+      if (this.preferredDate < this.minDate) {
+        this.fieldError.set('date');
+        this.error.set('Please pick today or a future date.');
+        return false;
+      }
+      if (!this.preferredTime) {
+        this.fieldError.set('time');
+        this.error.set('Pick a time slot for the visit.');
+        return false;
+      }
+      if (this.isSlotPast(this.preferredTime)) {
+        this.fieldError.set('time');
+        this.error.set('Please select a valid future time.');
+        this.preferredTime = '';
+        return false;
+      }
+    }
+    return true;
+  }
+
+  petNames() {
+    const names = this.petIds
+      .map((id) => this.pets().find((p) => p.id === id)?.name)
+      .filter(Boolean);
+    return names.length ? names.join(', ') : '—';
   }
 
   intakeText() {
     const parts = this.intakeQs()
-      .map((q, i) => {
-        const a = (this.intakeAnswers[i] || '').trim();
+      .map((q) => {
+        const a = (this.intakeAnswerMap[q.label] || '').trim();
         return a ? `${q.label}: ${a}` : '';
       })
       .filter(Boolean);
     if (this.intakeExtra.trim()) parts.push(this.intakeExtra.trim());
-    return parts.join('\n') || this.reason;
+    if (this.petIds.length > 1) {
+      parts.unshift(`Pets on this visit: ${this.petNames()}`);
+    }
+    return parts.join('\n');
+  }
+
+  detailsForReview() {
+    const t = this.intakeText().trim();
+    if (!t) return 'None provided';
+    if (t.toLowerCase() === this.reasonLabel().toLowerCase()) return 'None provided';
+    return t;
   }
 
   async confirm() {
+    const address = this.composedAddress();
+    if (
+      !this.petIds.length ||
+      !address.trim() ||
+      !this.preferredDate ||
+      !this.preferredTime ||
+      !this.reasonsSelected.length
+    ) {
+      this.error.set('Please complete pets, address, date, time, and symptoms before confirming.');
+      return;
+    }
+    if (this.isSlotPast(this.preferredTime)) {
+      this.error.set('Please select a valid future time.');
+      this.step.set(5);
+      return;
+    }
+    if (this.conflictBooking() && !this.allowOverlap()) {
+      this.error.set('This pet already has an active visit.');
+      this.step.set(1);
+      return;
+    }
     this.submitting.set(true);
     this.error.set('');
-    if (!this.idempotencyKey) {
-      this.idempotencyKey =
+    try {
+      const baseKey =
         typeof crypto !== 'undefined' && crypto.randomUUID
           ? crypto.randomUUID()
           : `bk-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    }
-    try {
-      const booking = await this.api.createBooking(
-        {
-          petId: this.petId,
-          reasonForVisit: this.reason,
-          intakeText: this.intakeText(),
-          address: this.address,
-          preferredDate: this.preferredDate,
-          preferredTime: this.preferredTime,
-          consultationType: this.consultationType,
-          mediaUrls: [],
-        },
-        this.idempotencyKey,
-      );
-      if (this.photoFile && booking?.id) {
-        try {
-          await this.api.uploadBookingFiles(booking.id, [this.photoFile]);
-        } catch {
-          /* booking still created */
+      const created: any[] = [];
+      for (let i = 0; i < this.petIds.length; i++) {
+        const petId = this.petIds[i];
+        const booking = await this.api.createBooking(
+          {
+            petId,
+            petIds: this.petIds,
+            reasonForVisit: this.reasonsSelected.join(', '),
+            intakeText: this.intakeText() || this.reasonLabel(),
+            address,
+            preferredDate: this.preferredDate,
+            preferredTime: this.preferredTime,
+            consultationType: this.consultationType,
+            mediaUrls: [],
+          },
+          `${baseKey}-${i}`,
+        );
+        created.push(booking);
+        if (this.photoFile && booking?.id && i === 0) {
+          try {
+            await this.api.uploadBookingFiles(booking.id, [this.photoFile]);
+          } catch {
+            /* booking still created */
+          }
         }
       }
+      const primary = created[0];
       const intakeId = this.route.snapshot.queryParamMap.get('intakeId');
-      if (intakeId && booking?.id) {
+      if (intakeId && primary?.id) {
         try {
-          await this.api.linkIntakeToBooking(intakeId, booking.id);
+          await this.api.linkIntakeToBooking(intakeId, primary.id);
         } catch {
           /* non-blocking */
         }
       }
-      await this.router.navigate(['/bookings', booking.id], {
+      await this.router.navigate(['/bookings', primary.id], {
         queryParams: { booked: '1' },
       });
     } catch (e: any) {

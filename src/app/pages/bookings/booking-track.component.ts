@@ -79,7 +79,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
     }
   `,
   styles: [`
-    :host { display: block; font-family: var(--vos-font); max-width: 720px; }
+    :host { display: block; font-family: var(--vos-font); }
 
     .linkish {
       border: 0; background: none; color: inherit; font-weight: 700;

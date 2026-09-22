@@ -1,6 +1,6 @@
 import { AfterViewChecked, Component, ElementRef, OnInit, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 import { Msg91OtpService } from '../../services/msg91-otp.service';
 import { environment } from '../../../environments/environment';
@@ -8,7 +8,7 @@ import { environment } from '../../../environments/environment';
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   template: `
     <div class="gate" [class.gate--busy]="loading()">
       <aside class="story">
@@ -18,7 +18,7 @@ import { environment } from '../../../environments/environment';
         <div class="story__orb story__orb--b" aria-hidden="true"></div>
 
         <div class="story__top">
-          <p class="story__brand">Vetonsp<span class="o">●</span>t</p>
+          <a routerLink="/" class="story__brand">Vetonsp<span class="o">●</span>t</a>
           <div class="locale" role="status" aria-label="Now serving Bengaluru City">
             <span class="locale__pin" aria-hidden="true">
               <span class="locale__pulse"></span>
@@ -43,7 +43,7 @@ import { environment } from '../../../environments/environment';
       <section class="panel">
         <div class="panel__inner">
           <div class="mobile-brand">
-            <span>Vetonsp<span class="o">●</span>t</span>
+            <a routerLink="/">Vetonsp<span class="o">●</span>t</a>
             <div class="locale locale--compact" role="status" aria-label="Now serving Bengaluru City">
               <span class="locale__pin" aria-hidden="true">
                 <span class="locale__pulse"></span>
@@ -51,6 +51,8 @@ import { environment } from '../../../environments/environment';
               <span class="locale__city">Bengaluru</span>
             </div>
           </div>
+
+          <a routerLink="/" class="back-land">← Back to VetonSpot</a>
 
           <div class="card" [class.card--busy]="loading()">
             <div class="steps" aria-hidden="true">
@@ -260,8 +262,24 @@ import { environment } from '../../../environments/environment';
       margin: 0 0 18px;
       font-family: var(--vos-display, "Gabarito", system-ui, sans-serif);
       font-weight: 700; font-size: 1.6rem; letter-spacing: -0.05em;
+      color: #fff;
+      text-decoration: none;
+      display: inline-block;
     }
     .story__brand .o, .mobile-brand .o { color: #fff; }
+    .mobile-brand a {
+      color: inherit;
+      text-decoration: none;
+    }
+    .back-land {
+      display: inline-block;
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: #5c5a55;
+      text-decoration: none;
+      margin-bottom: 2px;
+    }
+    .back-land:hover { color: #FD4A29; }
 
     .locale {
       position: relative;
@@ -775,7 +793,7 @@ export class LoginComponent implements OnInit, AfterViewChecked {
         await this.router.navigateByUrl('/signup');
       } else {
         this.auth.clearOtpSignupGate();
-        await this.router.navigateByUrl('/');
+        await this.router.navigateByUrl('/home');
       }
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Invalid OTP');

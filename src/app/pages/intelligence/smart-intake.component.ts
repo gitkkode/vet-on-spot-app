@@ -11,7 +11,7 @@ type Step = 'start' | 'draft' | 'questions' | 'summary' | 'recommend';
   imports: [FormsModule, RouterLink],
   selector: 'app-smart-intake',
   template: `
-    <a routerLink="/" class="vos-back">← Home</a>
+    <a routerLink="/home" class="vos-back">← Home</a>
     <header class="head">
       <p class="eyebrow">Smart intake</p>
       <h1>Something is wrong</h1>
@@ -26,40 +26,86 @@ type Step = 'start' | 'draft' | 'questions' | 'summary' | 'recommend';
     }
 
     @if (step() === 'start') {
-      <section class="vos-card">
-        <p class="label">Which pet?</p>
-        @for (p of pets(); track p.id) {
-          <button type="button" class="choice" [class.on]="petId === p.id" (click)="petId = p.id">
-            {{ p.name }}
-          </button>
-        }
-        @if (!pets().length) {
-          <p class="vos-empty">Add a pet first.</p>
-          <a class="vos-btn vos-btn-secondary" routerLink="/pets/new">Add a pet</a>
-        }
-      </section>
-      <section class="vos-card">
-        <label class="vos-field">What is happening?
-          <textarea
-            [(ngModel)]="freeText"
-            name="freeText"
-            rows="4"
-            placeholder="e.g. Vomiting since this morning, low appetite…"
-          ></textarea>
-        </label>
-        <button
-          type="button"
-          class="vos-btn"
-          [disabled]="!petId || !freeText.trim() || saving()"
-          (click)="start()"
-        >
-          {{ saving() ? 'Working…' : 'Continue' }}
-        </button>
-      </section>
-      <p class="alt">
-        Prefer urgent care form?
-        <a routerLink="/emergency" [queryParams]="petQuery()">Go to emergency request</a>
-      </p>
+      <div class="start">
+        <section class="start__main panel">
+          <div class="start__pet">
+            <p class="label">Which pet?</p>
+            @if (selectedPetName()) {
+              <p class="context">Helping <strong>{{ selectedPetName() }}</strong></p>
+            }
+            <div class="pills">
+              @for (p of pets(); track p.id) {
+                <button
+                  type="button"
+                  class="pill"
+                  [class.on]="petId === p.id"
+                  (click)="pickPet(p.id)"
+                >
+                  <span class="pill__mono">{{ petInitial(p.name) }}</span>
+                  <span>
+                    <strong>{{ displayName(p.name) }}</strong>
+                    @if (p.species) { <em>{{ p.species }}</em> }
+                  </span>
+                </button>
+              }
+            </div>
+            @if (!pets().length) {
+              <p class="vos-empty">Add a pet first.</p>
+              <a class="vos-btn vos-btn-secondary" routerLink="/pets/new">Add a pet</a>
+            }
+          </div>
+
+          <div class="start__body">
+            <p class="label">What is happening?</p>
+            <p class="hint">Tap a common concern, or describe it in your own words.</p>
+            <div class="suggest">
+              @for (s of startSuggestions; track s) {
+                <button type="button" class="chip" [class.on]="isSuggestionOn(s)" (click)="toggleSuggestion(s)">
+                  {{ s }}
+                </button>
+              }
+            </div>
+            <label class="vos-field sr-only" for="intake-free">Describe what’s going on</label>
+            <textarea
+              id="intake-free"
+              [(ngModel)]="freeText"
+              name="freeText"
+              rows="5"
+              placeholder="e.g. Vomiting since this morning, low appetite, seems lethargic…"
+            ></textarea>
+            <div class="start__foot">
+              <button
+                type="button"
+                class="vos-btn"
+                [disabled]="!petId || !freeText.trim() || saving()"
+                (click)="start()"
+              >
+                {{ saving() ? 'Working…' : 'Continue' }}
+              </button>
+              <p class="note">Not a diagnosis — we’ll organize details for a vet.</p>
+            </div>
+          </div>
+        </section>
+
+        <aside class="start__side">
+          <div class="side-card">
+            <p class="side-card__kicker">How this helps</p>
+            <ul>
+              <li>Capture symptoms in one place</li>
+              <li>Get guided follow-up questions</li>
+              <li>Share a clear summary with care</li>
+            </ul>
+          </div>
+          <a class="side-card side-card--urgent" routerLink="/emergency" [queryParams]="petQuery()">
+            <strong>Looks urgent?</strong>
+            <span>Use the emergency request instead — faster triage for critical signs.</span>
+          </a>
+          <a class="side-card side-card--link" routerLink="/televet" [queryParams]="petQuery()">
+            <strong>Prefer to talk it through?</strong>
+            <span>Request a tele-vet consult.</span>
+          </a>
+        </aside>
+      </div>
     }
 
     @if (step() === 'draft' && session(); as s) {
@@ -234,16 +280,118 @@ type Step = 'start' | 'draft' | 'questions' | 'summary' | 'recommend';
     }
   `,
   styles: [`
-    .head { margin-bottom: 12px; }
+    .head { margin-bottom: 18px; max-width: 52ch; }
     .eyebrow {
-      margin: 0 0 4px; color: var(--vos-brand); letter-spacing: 0.06em;
+      margin: 0 0 4px; color: var(--vos-brand); letter-spacing: 0.12em;
       text-transform: uppercase; font-size: 11px; font-weight: 700;
+      font-family: var(--vos-mono);
     }
-    h1 { font-family: var(--vos-display); margin: 0 0 8px; }
+    h1 {
+      font-family: var(--vos-display); margin: 0 0 8px;
+      font-size: clamp(1.7rem, 4vw, 2.2rem); letter-spacing: -0.03em;
+    }
     .label {
-      margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
-      color: var(--vos-ink-muted); font-weight: 700;
+      margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--vos-ink-muted); font-weight: 700; font-family: var(--vos-mono);
     }
+    .hint { margin: 0 0 12px; color: var(--vos-ink-muted); font-size: 0.95rem; }
+    .context { margin: 0 0 10px; font-size: 0.95rem; color: var(--vos-ink-muted); }
+    .context strong { color: var(--vos-ink); }
+
+    .start {
+      display: grid; gap: 18px; margin-bottom: 28px;
+      align-items: start;
+    }
+    @media (min-width: 960px) {
+      .start { grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.7fr); gap: 22px; }
+    }
+    .panel {
+      background: #fff; border: 1px solid var(--vos-border); border-radius: 22px;
+      padding: 22px 20px; box-shadow: 0 12px 32px rgba(20, 16, 12, 0.05);
+      display: grid; gap: 22px;
+    }
+    @media (min-width: 720px) {
+      .panel {
+        grid-template-columns: minmax(200px, 0.9fr) minmax(0, 1.3fr);
+        gap: 28px; padding: 26px 24px;
+      }
+      .start__pet {
+        padding-right: 22px;
+        border-right: 1px solid var(--vos-border);
+      }
+    }
+    .start__body textarea {
+      width: 100%; box-sizing: border-box; min-height: 140px;
+      padding: 14px 16px; border-radius: 14px; border: 1px solid var(--vos-border);
+      background: #faf8f4; font: inherit; font-size: 1.02rem; line-height: 1.45;
+      resize: vertical; color: var(--vos-ink);
+    }
+    .start__body textarea:focus {
+      outline: none; background: #fff;
+      border-color: rgba(253, 74, 41, 0.45);
+      box-shadow: 0 0 0 4px rgba(253, 74, 41, 0.12);
+    }
+    .suggest { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .chip {
+      border: 1px solid var(--vos-border); background: #fff; color: var(--vos-ink);
+      border-radius: 999px; padding: 8px 12px; font: inherit; font-size: 0.88rem;
+      font-weight: 600; cursor: pointer;
+    }
+    .chip.on {
+      background: #0a0a0a; color: #fff; border-color: #0a0a0a;
+    }
+    .start__foot {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 14px;
+    }
+    .start__foot .vos-btn { width: auto; min-width: 160px; margin: 0; }
+    .note { margin: 0; font-size: 0.88rem; color: var(--vos-ink-muted); max-width: 28ch; }
+
+    .start__side { display: grid; gap: 12px; }
+    .side-card {
+      display: block; text-decoration: none; color: inherit;
+      padding: 16px 16px; border-radius: 18px;
+      background: #faf8f4; border: 1px solid var(--vos-border);
+    }
+    .side-card__kicker {
+      margin: 0 0 8px; font-family: var(--vos-mono); font-size: 10px;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--vos-ink-muted); font-weight: 700;
+    }
+    .side-card ul {
+      margin: 0; padding-left: 18px; color: var(--vos-ink-muted);
+      font-size: 0.92rem; line-height: 1.5;
+    }
+    .side-card strong {
+      display: block; font-family: var(--vos-display); font-size: 1.05rem;
+      letter-spacing: -0.02em; margin-bottom: 4px;
+    }
+    .side-card span { color: var(--vos-ink-muted); font-size: 0.9rem; line-height: 1.4; }
+    .side-card--urgent {
+      background: #fff7ed; border-color: rgba(253, 74, 41, 0.28);
+    }
+    .side-card--urgent strong { color: var(--vos-brand); }
+    .side-card--link:hover { border-color: rgba(253, 74, 41, 0.35); }
+
+    .pills { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 10px 14px 10px 10px; border-radius: 999px;
+      border: 1px solid var(--vos-border); background: #fff;
+      cursor: pointer; font: inherit; color: var(--vos-ink); text-align: left;
+    }
+    .pill.on {
+      border-color: var(--vos-brand); background: var(--vos-brand-soft);
+      box-shadow: 0 0 0 3px rgba(253, 74, 41, 0.12);
+    }
+    .pill__mono {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #fff; color: var(--vos-brand);
+      font-family: var(--vos-display); font-weight: 700;
+    }
+    .pill span { display: grid; gap: 1px; }
+    .pill strong { font-size: 0.95rem; }
+    .pill em { font-style: normal; font-size: 0.78rem; color: var(--vos-ink-muted); }
+
     .choice {
       display: block; width: 100%; text-align: left; margin: 0 0 8px;
       padding: 12px 14px; border-radius: var(--vos-radius-sm);
@@ -268,8 +416,10 @@ type Step = 'start' | 'draft' | 'questions' | 'summary' | 'recommend';
     .actions { display: grid; gap: 10px; margin-top: 14px; }
     .rec-title { font-family: var(--vos-display); margin: 0 0 8px; font-size: 1.25rem; }
     .emergency p { margin: 8px 0 0; }
-    .alt { text-align: center; font-size: 0.9rem; color: var(--vos-ink-muted); }
-    .alt a { font-weight: 700; }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0,0,0,0); border: 0;
+    }
   `],
 })
 export class SmartIntakeComponent implements OnInit {
@@ -284,6 +434,17 @@ export class SmartIntakeComponent implements OnInit {
   );
   readonly saving = signal(false);
   readonly error = signal('');
+
+  startSuggestions = [
+    'Vomiting',
+    'Not eating',
+    'Diarrhea',
+    'Lethargy',
+    'Itching / skin',
+    'Limping',
+    'Coughing',
+    'Ear / eye',
+  ];
 
   petId = '';
   freeText = '';
@@ -312,9 +473,47 @@ export class SmartIntakeComponent implements OnInit {
     } else {
       this.petId = this.activePet.get() || '';
     }
-    void this.loadPets();
+    void this.loadPets(qPet || this.petId);
     const resume = this.route.snapshot.queryParamMap.get('intakeId');
     if (resume) void this.resume(resume);
+  }
+
+  pickPet(id: string) {
+    this.petId = id;
+    this.activePet.set(id);
+  }
+
+  isSuggestionOn(s: string) {
+    return this.freeText.toLowerCase().includes(s.toLowerCase());
+  }
+
+  toggleSuggestion(s: string) {
+    const parts = this.freeText
+      .split(/[,;\n]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const idx = parts.findIndex((p) => p.toLowerCase() === s.toLowerCase());
+    if (idx >= 0) parts.splice(idx, 1);
+    else parts.push(s);
+    this.freeText = parts.join(', ');
+  }
+
+  displayName(name: string | null | undefined) {
+    const raw = String(name || '').trim();
+    if (!raw) return '';
+    return raw
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+  }
+
+  petInitial(name: string | null | undefined) {
+    return (String(name || '?').trim().charAt(0) || '?').toUpperCase();
+  }
+
+  selectedPetName() {
+    const p = this.pets().find((x) => x.id === this.petId);
+    return this.displayName(p?.name);
   }
 
   petQuery() {
@@ -370,13 +569,12 @@ export class SmartIntakeComponent implements OnInit {
     return this.recommendation()?.service || '';
   }
 
-  async loadPets() {
+  async loadPets(preferredId?: string | null) {
     try {
       const list = await this.api.pets();
       this.pets.set(Array.isArray(list) ? list : list?.pets || []);
-      if (!this.petId && this.pets().length) {
-        this.petId = this.activePet.get() || this.pets()[0].id;
-      }
+      const resolved = this.activePet.syncFromPets(this.pets(), preferredId || this.petId);
+      if (resolved) this.petId = resolved;
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Could not load pets');
     }

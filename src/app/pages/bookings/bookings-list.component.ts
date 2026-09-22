@@ -15,7 +15,6 @@ type FilterTab = 'upcoming' | 'past' | 'all';
         <h1>Appointments</h1>
         <p class="lede">Every home visit in one place — upcoming first, history when you need it.</p>
       </div>
-      <a class="book" routerLink="/book/new">Book visit</a>
     </header>
 
     @if (error()) {
@@ -41,9 +40,9 @@ type FilterTab = 'upcoming' | 'past' | 'all';
         <a class="hero" [routerLink]="['/bookings', next.id]">
           <div class="hero__glow" aria-hidden="true"></div>
           <p class="hero__kicker">Up next</p>
-          <strong class="hero__title">{{ next.petName || 'Your pet' }}’s visit</strong>
+          <strong class="hero__title">{{ displayPetName(next.petName) }}’s visit</strong>
           <p class="hero__detail">
-            {{ next.customerStatus?.label || next.status || 'Scheduled' }}
+            {{ statusLabel(next) }}
             · {{ prettyWhen(next.scheduledDate, next.scheduledTime) }}
           </p>
           <span class="hero__cta">Open visit →</span>
@@ -83,16 +82,16 @@ type FilterTab = 'upcoming' | 'past' | 'all';
                 @for (b of group.items; track b.id) {
                   <a class="card" [routerLink]="['/bookings', b.id]" [class.card--live]="isLive(b)">
                     <div class="card__rail" aria-hidden="true">
-                      <span class="card__dot" [class.card__dot--live]="isLive(b)"></span>
+                      <span class="avatar" [class.avatar--live]="isLive(b)">{{ petInitial(b.petName) }}</span>
                     </div>
                     <div class="card__body">
                       <div class="card__top">
-                        <strong>{{ b.petName || 'Visit' }}</strong>
-                        <span class="badge" [attr.data-tone]="tone(b)">{{ b.customerStatus?.label || b.status }}</span>
+                        <strong>{{ displayPetName(b.petName) }}</strong>
+                        <span class="badge" [attr.data-tone]="tone(b)">{{ statusLabel(b) }}</span>
                       </div>
                       <p class="when">{{ prettyWhen(b.scheduledDate, b.scheduledTime) }}</p>
                       <p class="meta">
-                        {{ b.assignedDoctor || 'Doctor assignment pending' }}
+                        {{ doctorLine(b) }}
                         @if (b.reason) {
                           <span>· {{ prettyReason(b.reason) }}</span>
                         }
@@ -109,11 +108,10 @@ type FilterTab = 'upcoming' | 'past' | 'all';
     }
   `,
   styles: [`
-    :host { display: block; max-width: 760px; }
+    :host { display: block; }
 
     .head {
-      display: flex; justify-content: space-between; align-items: flex-end;
-      gap: 16px; margin-bottom: 22px;
+      margin-bottom: 28px;
     }
     .kicker {
       margin: 0 0 6px;
@@ -130,14 +128,17 @@ type FilterTab = 'upcoming' | 'past' | 'all';
     .lede {
       margin: 8px 0 0;
       color: var(--vos-ink-muted);
-      max-width: 40ch; line-height: 1.45; font-size: 1rem;
+      max-width: 40ch; line-height: 1.45; font-size: 1.05rem;
     }
     .book {
       display: inline-flex; align-items: center; justify-content: center;
       min-height: 46px; padding: 10px 18px; border-radius: 999px;
-      background: #0a0a0a; color: #fff; font-weight: 700; text-decoration: none;
+      background: linear-gradient(135deg, #FD4A29, #E03E20); color: #fff; font-weight: 700; text-decoration: none;
       white-space: nowrap;
+      box-shadow: 0 10px 24px rgba(253, 74, 41, 0.28);
+      transition: transform 0.15s var(--vos-ease);
     }
+    .book:hover { transform: translateY(-1px); }
     .book--lg { min-height: 50px; padding: 14px 24px; margin-top: 8px; }
     .linkish {
       margin-left: 8px; border: 0; background: none; font-weight: 700;
@@ -248,7 +249,7 @@ type FilterTab = 'upcoming' | 'past' | 'all';
 
     .card {
       position: relative;
-      display: grid; grid-template-columns: 28px 1fr;
+      display: grid; grid-template-columns: 52px 1fr;
       text-decoration: none; color: inherit;
       border-radius: 20px;
       background: #fffef9;
@@ -268,22 +269,21 @@ type FilterTab = 'upcoming' | 'past' | 'all';
     }
     .card__rail {
       display: flex; justify-content: center;
-      padding-top: 26px;
+      padding-top: 18px;
       background: linear-gradient(180deg, rgba(253,74,41,0.06), transparent);
     }
-    .card__dot {
-      width: 10px; height: 10px; border-radius: 50%;
-      background: #d4cfc4;
-      box-shadow: 0 0 0 4px rgba(212, 207, 196, 0.35);
+    .avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: linear-gradient(145deg, #ffe8e1, #fff5f1);
+      color: var(--vos-brand);
+      font-family: var(--vos-display);
+      font-size: 0.95rem; font-weight: 700;
+      box-shadow: 0 0 0 3px rgba(253, 74, 41, 0.12);
     }
-    .card__dot--live {
-      background: #FD4A29;
-      box-shadow: 0 0 0 4px rgba(253, 74, 41, 0.22);
-      animation: pulse 1.6s ease-in-out infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.15); }
+    .avatar--live {
+      background: #FD4A29; color: #fff;
+      box-shadow: 0 0 0 3px rgba(253, 74, 41, 0.22);
     }
     .card__body {
       position: relative;
@@ -329,7 +329,7 @@ type FilterTab = 'upcoming' | 'past' | 'all';
       to { opacity: 1; transform: none; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .hero, .group, .card__dot--live { animation: none !important; }
+      .hero, .group { animation: none !important; }
     }
   `],
 })
@@ -370,31 +370,98 @@ export class BookingsListComponent implements OnInit {
     }
   }
 
+  /** Past visits drop out of “upcoming” once the slot is well behind. */
   isUpcoming(b: any): boolean {
-    const status = String(b?.status || b?.customerStatus?.code || '').toLowerCase();
-    if (['completed', 'cancelled', 'canceled', 'no_show', 'closed'].includes(status)) return false;
+    if (this.isTerminal(b) || this.isStalePast(b)) return false;
     const when = this.whenDate(b);
     if (!when) return true;
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
-    return when.getTime() >= Date.now() - 6 * 3600 * 1000;
+    return when.getTime() >= Date.now() - 4 * 3600 * 1000;
   }
 
   isLive(b: any): boolean {
-    const label = String(b?.customerStatus?.label || b?.status || '').toLowerCase();
-    return /en route|arrived|consultation|on the way|live|confirmed|assigned|dispatched/.test(label);
+    if (this.isStalePast(b) || this.isTerminal(b)) return false;
+    const label = this.rawStatus(b);
+    return /en route|arrived|consultation|on the way|live|in progress|dispatched/.test(label);
+  }
+
+  statusLabel(b: any): string {
+    if (this.isStalePast(b) && !this.isTerminal(b)) {
+      const label = this.rawStatus(b);
+      if (/in progress|consultation|en route|arrived/.test(label)) return 'Visit ended';
+      if (/confirm|assign|accepted|received|pending|sent/.test(label)) return 'Past visit';
+    }
+    const doctor = this.doctorName(b);
+    const label = String(b?.customerStatus?.label || b?.status || 'Scheduled').trim();
+    // Unify “Doctor confirmed” without a name → matching / assignment pending
+    if (/doctor confirmed|confirmed|assigned/i.test(label) && !doctor) {
+      return 'Matching a vet';
+    }
+    if (/assignment pending|pending assignment/i.test(label) && doctor) {
+      return 'Doctor confirmed';
+    }
+    return label || 'Scheduled';
+  }
+
+  doctorLine(b: any): string {
+    const doctor = this.doctorName(b);
+    if (doctor) return this.fixDr(doctor);
+    if (this.isStalePast(b) || this.isTerminal(b)) return 'No doctor listed';
+    return 'Doctor assignment pending';
+  }
+
+  private doctorName(b: any): string {
+    return String(b?.assignedDoctor || b?.doctorName || b?.vetName || '').trim();
+  }
+
+  private fixDr(name: string): string {
+    return name.replace(/\bDr\.?\s*Dr\.?\s+/gi, 'Dr. ').trim();
+  }
+
+  private rawStatus(b: any): string {
+    return String(b?.customerStatus?.label || b?.customerStatus?.code || b?.status || '').toLowerCase();
+  }
+
+  private isTerminal(b: any): boolean {
+    return /complet|cancel|no.?show|closed|declined|missed/.test(this.rawStatus(b));
+  }
+
+  /** Active-looking visits that are clearly in the past (slot + grace). */
+  private isStalePast(b: any): boolean {
+    if (this.isTerminal(b)) return false;
+    const when = this.whenDate(b);
+    if (!when) return false;
+    const graceMs = 6 * 3600 * 1000;
+    return when.getTime() + graceMs < Date.now();
   }
 
   tone(b: any): string {
-    const label = String(b?.customerStatus?.label || b?.status || '').toLowerCase();
-    if (/complete|done|closed/.test(label)) return 'done';
-    if (/cancel|fail|miss/.test(label)) return 'muted';
-    if (/pending|wait|review/.test(label)) return 'warn';
+    const label = this.statusLabel(b).toLowerCase();
+    if (/complete|done|closed|ended/.test(label)) return 'done';
+    if (/cancel|fail|miss|past visit/.test(label)) return 'muted';
+    if (/pending|wait|review|matching|received/.test(label)) return 'warn';
     return 'brand';
   }
 
+  displayPetName(name: string | null | undefined): string {
+    return this.titleCase(name) || 'Visit';
+  }
+
+  petInitial(name: string | null | undefined): string {
+    const n = String(name || '?').trim();
+    return (n.charAt(0) || '?').toUpperCase();
+  }
+
+  private titleCase(v: string | null | undefined): string {
+    const raw = String(v || '').trim();
+    if (!raw) return '';
+    return raw
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+  }
+
   prettyWhen(dateStr?: string | null, timeStr?: string | null): string {
-    const time = String(timeStr || '').trim();
+    const time = this.prettyTime(timeStr);
     if (!dateStr) return time || 'Schedule TBD';
     const raw = String(dateStr);
     const d = new Date(raw.includes('T') ? raw : `${raw.slice(0, 10)}T12:00:00`);
@@ -407,6 +474,33 @@ export class BookingsListComponent implements OnInit {
     return time ? `${day} · ${time}` : day;
   }
 
+  /** Normalize to a consistent 12-hour local time with AM/PM. */
+  prettyTime(timeStr?: string | null): string {
+    const raw = String(timeStr || '').trim();
+    if (!raw) return '';
+    if (/am|pm/i.test(raw)) {
+      const m = raw.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+      if (m) {
+        const h = parseInt(m[1], 10);
+        const min = m[2];
+        const ap = m[3].toUpperCase();
+        return `${h}:${min} ${ap}`;
+      }
+      return raw.replace(/\s+/g, ' ').toUpperCase().replace(/([AP])M/, '$1M');
+    }
+    // 24h "HH:mm" or "H:mm"
+    const m24 = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (m24) {
+      let h = parseInt(m24[1], 10);
+      const min = m24[2];
+      const ap = h >= 12 ? 'PM' : 'AM';
+      h = h % 12;
+      if (h === 0) h = 12;
+      return `${h}:${min} ${ap}`;
+    }
+    return raw;
+  }
+
   prettyReason(reason: string): string {
     const r = String(reason || '').trim();
     if (!r) return '';
@@ -414,10 +508,39 @@ export class BookingsListComponent implements OnInit {
   }
 
   private whenDate(b: any): Date | null {
-    const raw = String(b?.scheduledDate || '');
-    if (!raw) return null;
-    const d = new Date(raw.includes('T') ? raw : `${raw.slice(0, 10)}T12:00:00`);
+    const rawDate = String(b?.scheduledDate || '');
+    if (!rawDate) return null;
+    const time = String(b?.scheduledTime || '').trim();
+    let iso = rawDate.includes('T') ? rawDate : `${rawDate.slice(0, 10)}`;
+    if (!rawDate.includes('T') && time) {
+      const mins = this.timeToMinutes(time);
+      if (mins != null) {
+        const hh = String(Math.floor(mins / 60)).padStart(2, '0');
+        const mm = String(mins % 60).padStart(2, '0');
+        iso = `${rawDate.slice(0, 10)}T${hh}:${mm}:00`;
+      } else {
+        iso = `${rawDate.slice(0, 10)}T12:00:00`;
+      }
+    } else if (!rawDate.includes('T')) {
+      iso = `${rawDate.slice(0, 10)}T12:00:00`;
+    }
+    const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  private timeToMinutes(t: string): number | null {
+    const ampm = t.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+    if (ampm) {
+      let h = parseInt(ampm[1], 10);
+      const m = parseInt(ampm[2], 10);
+      const ap = ampm[3].toUpperCase();
+      if (ap === 'PM' && h !== 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    }
+    const m24 = t.match(/^(\d{1,2}):(\d{2})/);
+    if (m24) return parseInt(m24[1], 10) * 60 + parseInt(m24[2], 10);
+    return null;
   }
 
   private sortBookings(list: any[]): any[] {

@@ -20,16 +20,33 @@ import { ActivePetService } from '../../services/active-pet.service';
       <div class="switcher">
         @for (p of pets(); track p.id) {
           <button type="button" class="chip" [class.on]="active() === p.id" (click)="pick(p.id)">
-            {{ p.name }}
+            {{ titleCase(p.name) }}
           </button>
         }
       </div>
+
+      @if (active(); as pid) {
+        <nav class="tabs" aria-label="Health sections">
+          <a class="tab on" [routerLink]="['/pets', pid, 'health']">Overview</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'timeline']">Timeline</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'medications']">Medications</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'vaccinations']">Vaccinations</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'diagnostics']">Diagnostics</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'conditions']">Conditions</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'care-plans']">Care plans</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'documents']">Documents</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'reminders']">Reminders</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'calendar']">Calendar</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'weight']">Weight</a>
+          <a class="tab" [routerLink]="['/pets', pid, 'passport']">Passport</a>
+        </nav>
+      }
 
       @if (loading()) {
         <div class="vos-skel"></div>
       } @else if (summary(); as s) {
         <section class="vos-card">
-          <p class="label">Overview · {{ s.pet?.name }}</p>
+          <p class="label">Overview · {{ titleCase(s.pet?.name) }}</p>
           @if (s.careStatus?.upcomingFollowUp; as fu) {
             <a class="row" routerLink="/follow-ups">
               <strong>Follow-up</strong>
@@ -37,7 +54,7 @@ import { ActivePetService } from '../../services/active-pet.service';
             </a>
           }
           @if (s.careStatus?.activeMedications?.length) {
-            <a class="row" routerLink="/medications">
+            <a class="row" [routerLink]="['/pets', active(), 'medications']">
               <strong>Next medication</strong>
               <span>{{ s.careStatus.activeMedications[0].medicine }}</span>
             </a>
@@ -68,31 +85,32 @@ import { ActivePetService } from '../../services/active-pet.service';
           }
         </section>
       }
-
-      <nav class="links" aria-label="Health sections">
-        <a [routerLink]="active() ? ['/pets', active(), 'health'] : null">Overview</a>
-        <a [routerLink]="active() ? ['/pets', active(), 'timeline'] : null">Timeline</a>
-        <a routerLink="/medications">Medications</a>
-        <a [routerLink]="active() ? ['/pets', active(), 'vaccinations'] : null">Vaccinations</a>
-        <a routerLink="/diagnostics">Diagnostics</a>
-        <a [routerLink]="active() ? ['/pets', active(), 'conditions'] : null">Conditions</a>
-        <a [routerLink]="active() ? ['/pets', active(), 'care-plans'] : null">Care plans</a>
-        <a [routerLink]="active() ? ['/pets', active(), 'documents'] : null">Documents</a>
-        <a [routerLink]="active() ? ['/pets', active(), 'reminders'] : null">Reminders</a>
-        <a [routerLink]="active() ? ['/pets', active(), 'calendar'] : null">Calendar</a>
-        <a [routerLink]="active() ? ['/pets', active(), 'weight'] : null">Weight</a>
-        <a [routerLink]="active() ? ['/pets', active(), 'passport'] : null">Passport</a>
-      </nav>
     }
   `,
   styles: [`
     h1 { margin: 0 0 4px; font-family: var(--vos-display); }
-    .switcher { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+    .switcher { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 12px; }
     .chip {
       border: 1px solid var(--vos-border); background: var(--vos-surface);
       border-radius: 999px; padding: 8px 14px; font-weight: 600; cursor: pointer; color: var(--vos-ink);
     }
     .chip.on { background: var(--vos-brand-soft); border-color: var(--vos-brand); }
+    .tabs {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin: 0 0 16px; padding: 4px;
+      background: #f3efe6; border-radius: 14px;
+    }
+    .tab {
+      display: inline-flex; align-items: center;
+      min-height: 36px; padding: 6px 12px; border-radius: 10px;
+      text-decoration: none; color: var(--vos-ink-muted);
+      font-weight: 700; font-size: 0.88rem; white-space: nowrap;
+    }
+    .tab:hover { color: var(--vos-ink); background: rgba(255,255,255,0.55); }
+    .tab.on {
+      background: #fff; color: var(--vos-ink);
+      box-shadow: 0 4px 12px rgba(10, 10, 10, 0.06);
+    }
     .label {
       margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
       color: var(--vos-ink-muted); font-weight: 700;
@@ -103,12 +121,6 @@ import { ActivePetService } from '../../services/active-pet.service';
     }
     .row span { color: var(--vos-ink-muted); font-size: 0.9rem; }
     .note { margin: 12px 0 0; font-size: 0.85rem; color: var(--vos-ink-muted); }
-    .links { display: grid; gap: 8px; margin-top: 14px; }
-    .links a {
-      display: block; background: var(--vos-surface); border: 1px solid var(--vos-border);
-      border-radius: var(--vos-radius-sm); padding: 12px 14px; text-decoration: none;
-      color: var(--vos-ink); font-weight: 600;
-    }
     .linkish {
       margin-left: 8px; background: none; border: 0; color: var(--vos-brand);
       font-weight: 700; cursor: pointer;
@@ -129,6 +141,15 @@ export class HealthHubComponent implements OnInit {
 
   ngOnInit() {
     void this.load();
+  }
+
+  titleCase(v: string | null | undefined): string {
+    const raw = String(v || '').trim();
+    if (!raw) return '';
+    return raw
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
   }
 
   hasCareBits(s: any): boolean {

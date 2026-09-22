@@ -3,6 +3,11 @@ import { authGuard, customerProfileGuard, guestGuard, signupGuard } from './guar
 
 export const routes: Routes = [
   {
+    path: '',
+    pathMatch: 'full',
+    loadComponent: () => import('./pages/landing/landing.component').then((m) => m.LandingComponent),
+  },
+  {
     path: 'login',
     loadComponent: () => import('./pages/login/login.component').then((m) => m.LoginComponent),
     canActivate: [guestGuard],
@@ -17,7 +22,7 @@ export const routes: Routes = [
     loadComponent: () => import('./layout/shell.component').then((m) => m.ShellComponent),
     canActivate: [authGuard, customerProfileGuard],
     children: [
-      { path: '', loadComponent: () => import('./pages/home/home.component').then((m) => m.HomeComponent) },
+      { path: 'home', loadComponent: () => import('./pages/home/home.component').then((m) => m.HomeComponent) },
       { path: 'profile', loadComponent: () => import('./pages/profile/profile.component').then((m) => m.ProfileComponent) },
       { path: 'settings', loadComponent: () => import('./pages/settings/settings.component').then((m) => m.SettingsComponent) },
       { path: 'addresses', loadComponent: () => import('./pages/profile/addresses.component').then((m) => m.AddressesComponent) },
@@ -28,9 +33,11 @@ export const routes: Routes = [
       { path: 'pets/:id/edit', loadComponent: () => import('./pages/pets/pet-form.component').then((m) => m.PetFormComponent) },
       { path: 'pets/:id/health', loadComponent: () => import('./pages/pets/pet-health.component').then((m) => m.PetHealthComponent) },
       { path: 'pets/:id/timeline', loadComponent: () => import('./pages/pets/pet-timeline.component').then((m) => m.PetTimelineComponent) },
+      { path: 'pets/:id/medications', loadComponent: () => import('./pages/care/medications.component').then((m) => m.MedicationsComponent) },
       { path: 'pets/:id/vaccinations', loadComponent: () => import('./pages/pets/pet-vaccinations.component').then((m) => m.PetVaccinationsComponent) },
       { path: 'pets/:id/conditions', loadComponent: () => import('./pages/pets/pet-conditions.component').then((m) => m.PetConditionsComponent) },
       { path: 'pets/:id/care-plans', loadComponent: () => import('./pages/pets/pet-care-plans.component').then((m) => m.PetCarePlansComponent) },
+      { path: 'pets/:id/diagnostics', loadComponent: () => import('./pages/care/diagnostics.component').then((m) => m.DiagnosticsComponent) },
       { path: 'pets/:id/reminders', loadComponent: () => import('./pages/care/reminders.component').then((m) => m.RemindersComponent) },
       { path: 'pets/:id/calendar', loadComponent: () => import('./pages/pets/health-calendar.component').then((m) => m.HealthCalendarComponent) },
       { path: 'pets/:id/weight', loadComponent: () => import('./pages/pets/weight-trend.component').then((m) => m.WeightTrendComponent) },

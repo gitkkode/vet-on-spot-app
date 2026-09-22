@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { AfterViewChecked, Component, ElementRef, HostListener, OnInit, ViewChild, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
@@ -8,6 +8,7 @@ import { ActivePetService } from '../../services/active-pet.service';
   imports: [RouterLink],
   selector: 'app-home',
   template: `
+    <div class="vos-page home">
     @if (error()) {
       <div class="vos-err">
         {{ error() }}
@@ -97,61 +98,124 @@ import { ActivePetService } from '../../services/active-pet.service';
       } @else {
         <!-- Pet-parent care home: one moment, three paths, soft care strip -->
         <div class="hub">
+          <div class="hub__main">
           <header class="stage" aria-label="Your pet">
-            <div class="stage__pets" role="listbox" aria-label="Switch pet">
-              @for (p of h.pets; track p.id) {
-                <button
-                  type="button"
-                  class="pet-chip"
-                  role="option"
-                  [attr.aria-selected]="h.activePet?.id === p.id"
-                  [class.on]="h.activePet?.id === p.id"
-                  [attr.aria-label]="p.name"
-                  (click)="selectPet(p.id)"
-                >
-                  @if (p.photoUrl) {
-                    <img [src]="p.photoUrl" alt="" />
-                  } @else {
-                    <span class="ph">{{ (p.name || '?').charAt(0) }}</span>
-                  }
-                </button>
+            <div
+              class="stage__pets-wrap"
+              [class.stage__pets-wrap--overflow]="petsOverflow()"
+              [class.stage__pets-wrap--left]="canScrollPetsLeft()"
+              [class.stage__pets-wrap--right]="canScrollPetsRight()"
+            >
+              @if (canScrollPetsLeft()) {
+                <button type="button" class="pets-nav pets-nav--prev" aria-label="Scroll pets left" (click)="scrollPets(-1)">‹</button>
               }
-              <a class="pet-add" routerLink="/pets/new" aria-label="Add pet">+</a>
+              <div
+                class="stage__pets"
+                #petsRow
+                role="listbox"
+                aria-label="Switch pet"
+                (scroll)="onPetsScroll()"
+              >
+                @for (p of h.pets; track p.id) {
+                  <button
+                    type="button"
+                    class="pet-chip"
+                    role="option"
+                    [attr.aria-selected]="h.activePet?.id === p.id"
+                    [class.on]="h.activePet?.id === p.id"
+                    [attr.aria-label]="displayPetName(p.name)"
+                    (click)="selectPet(p.id)"
+                  >
+                    <span class="pet-chip__avatar">
+                      @if (showPetPhoto(p)) {
+                        <img [src]="p.photoUrl" alt="" (error)="onPetPhotoError(p.id)" />
+                      } @else {
+                        <span class="ph">{{ petInitial(p.name) }}</span>
+                      }
+                    </span>
+                    <span class="pet-chip__name">{{ displayPetName(p.name) }}</span>
+                  </button>
+                }
+                <a class="pet-add" routerLink="/pets/new" aria-label="Add pet">
+                  <span class="pet-add__icon" aria-hidden="true">+</span>
+                  <span class="pet-add__label">Add</span>
+                </a>
+              </div>
+              @if (canScrollPetsRight()) {
+                <button type="button" class="pets-nav pets-nav--next" aria-label="Scroll pets right" (click)="scrollPets(1)">›</button>
+              }
             </div>
-            <p class="stage__kicker">{{ firstName(h.greeting) }} · Pet Parent</p>
+
             <h1 class="stage__title">
               @if (h.activePet?.name; as petName) {
-                How’s {{ petName }} today?
+                How’s {{ displayPetName(petName) }} today?
               } @else {
                 {{ h.greeting }}
               }
             </h1>
             <p class="stage__whisper">{{ healthWhisper() }}</p>
+
+            @if (healthSnapshot(); as snaps) {
+              @if (snaps.length) {
+                <ul class="stats" aria-label="Pet health snapshot">
+                  @for (s of snaps; track s.key) {
+                    <li>
+                      <a class="stat" [routerLink]="s.commands" [queryParams]="s.queryParams || {}">
+                        <em>{{ s.label }}</em>
+                        <strong>{{ s.value }}</strong>
+                      </a>
+                    </li>
+                  }
+                </ul>
+              }
+            }
           </header>
 
           @if (nextAction(); as na) {
             <section class="moment" aria-label="Up next">
-              <div class="moment__glow" aria-hidden="true"></div>
-              <p class="moment__label">{{ hasUpcoming() ? 'Up next' : 'Suggested for you' }}</p>
-              <strong class="moment__title">{{ na.title }}</strong>
-              <p class="moment__detail">{{ na.detail }}</p>
-              <a
-                class="moment__cta"
-                [routerLink]="na.commands"
-                [queryParams]="na.queryParams || {}"
-              >{{ na.cta }}</a>
+              <div class="moment__inner">
+                <div class="moment__copy">
+                  <p class="moment__label">{{ hasUpcoming() ? 'Up next' : 'Suggested for you' }}</p>
+                  <strong class="moment__title">{{ na.title }}</strong>
+                  <p class="moment__detail">{{ na.detail }}</p>
+                  <div class="moment__ctas">
+                    <a
+                      class="moment__cta"
+                      [routerLink]="na.commands"
+                      [queryParams]="na.queryParams || {}"
+                    >{{ na.cta }}</a>
+                    @if (na.secondaryCommands) {
+                      <a
+                        class="moment__cta moment__cta--ghost"
+                        [routerLink]="na.secondaryCommands"
+                        [queryParams]="{ edit: '1' }"
+                      >{{ na.secondaryCta || 'Modify visit' }}</a>
+                    }
+                  </div>
+                </div>
+                <div class="moment__art" aria-hidden="true">
+                  <span class="moment__paw"></span>
+                </div>
+              </div>
             </section>
           }
 
-          <section class="paths" aria-label="What would you like to do?">
-            <h2 class="sec-h">Start here</h2>
+          <section class="paths" aria-label="Care options">
+            <h2 class="sec-h">Care options</h2>
             <div class="paths__row">
-              <a class="path path--primary" routerLink="/book/new" [queryParams]="petQuery()">
-                <strong>Book a home visit</strong>
-                <span>A vet at your door</span>
-              </a>
+              @if (activeVisitForPet(); as visit) {
+                <a class="path" [routerLink]="['/bookings', visit.id]">
+                  <strong>Open visit</strong>
+                  <span>{{ visit.petName || 'Active' }} · already booked</span>
+                </a>
+              } @else {
+                <a class="path" routerLink="/book/new" [queryParams]="petQuery()">
+                  <strong>Home visit</strong>
+                  <span>A vet at your door</span>
+                </a>
+              }
               <a class="path" routerLink="/televet" [queryParams]="petQuery()">
-                <strong>Talk to a vet</strong>
+                <strong>Televet</strong>
                 <span>Quick phone consult</span>
               </a>
               <a class="path" routerLink="/intake" [queryParams]="petQuery()">
@@ -163,14 +227,16 @@ import { ActivePetService } from '../../services/active-pet.service';
               Need urgent care? Open emergency
             </a>
           </section>
+          </div>
 
+          <aside class="hub__side">
           @if (careBits(); as bits) {
             @if (bits.length) {
               <section class="care" aria-label="Care for your pet">
                 <div class="sec-row">
                   <h2 class="sec-h">
                     @if (h.activePet?.name; as n) {
-                      Caring for {{ n }}
+                      Caring for {{ displayPetName(n) }}
                     } @else {
                       Care today
                     }
@@ -200,7 +266,7 @@ import { ActivePetService } from '../../services/active-pet.service';
                   @for (b of extras; track b.id) {
                     <a class="upcom__card" [routerLink]="['/bookings', b.id]">
                       <span class="upcom__pill">{{ b.customerStatus?.label || b.status }}</span>
-                      <strong>{{ b.petName }}</strong>
+                      <strong>{{ displayPetName(b.petName) }}</strong>
                       <span class="upcom__when">{{ prettyWhen(b.scheduledDate, b.scheduledTime) }}</span>
                       <span class="upcom__chev" aria-hidden="true"></span>
                     </a>
@@ -212,19 +278,22 @@ import { ActivePetService } from '../../services/active-pet.service';
 
           <nav class="util" aria-label="More">
             @if (h.activePet?.id; as pid) {
-              <a [routerLink]="['/pets', pid]">{{ h.activePet?.name || 'Pet' }} profile</a>
+              <a [routerLink]="['/pets', pid]">{{ displayPetName(h.activePet?.name) || 'Pet' }} profile</a>
               <a [routerLink]="['/pets', pid, 'vaccinations']">Vaccines</a>
             }
             <a routerLink="/medications">Medications</a>
             <a routerLink="/assistant" [queryParams]="petQuery()">Ask / Support</a>
             <a routerLink="/notifications">Alerts</a>
           </nav>
+          </aside>
         </div>
       }
     }
+    </div>
   `,
   styles: [`
-    :host { display: block; animation: home-in 0.45s var(--vs-ease, ease) both; }
+    .home { max-width: none; animation: home-in 0.45s var(--vos-ease, ease) both; }
+    :host { display: block; }
 
     @keyframes home-in {
       from { opacity: 0; transform: translateY(8px); }
@@ -296,8 +365,8 @@ import { ActivePetService } from '../../services/active-pet.service';
 
     /* —— Empty: enterprise onboarding —— */
     .onboard {
-      max-width: 760px;
-      margin: 0 auto;
+      max-width: none;
+      margin: 0;
       padding-bottom: 12px;
       animation: home-in 0.5s var(--vs-ease, ease) both;
     }
@@ -545,87 +614,228 @@ import { ActivePetService } from '../../services/active-pet.service';
     }
 
     .hub {
-      max-width: 720px;
-      margin: 0 auto;
+      width: 100%;
+      max-width: none;
+      margin: 0;
       padding-bottom: 8px;
       display: grid;
-      gap: 22px;
+      gap: 28px;
     }
-    .hub > * {
+    @media (min-width: 1100px) {
+      .hub {
+        grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.85fr);
+        gap: 28px 32px;
+        align-items: start;
+      }
+    }
+    .hub__main {
+      display: grid;
+      gap: 24px;
+      min-width: 0;
+    }
+    .hub__side {
+      display: grid;
+      gap: 20px;
+      min-width: 0;
+    }
+    .hub__main > *,
+    .hub__side > * {
       animation: hub-rise 0.5s var(--vs-ease, ease) both;
     }
-    .hub > *:nth-child(1) { animation-delay: 0.02s; }
-    .hub > *:nth-child(2) { animation-delay: 0.08s; }
-    .hub > *:nth-child(3) { animation-delay: 0.14s; }
-    .hub > *:nth-child(4) { animation-delay: 0.2s; }
-    .hub > *:nth-child(5) { animation-delay: 0.24s; }
+    .hub__main > *:nth-child(1) { animation-delay: 0.02s; }
+    .hub__main > *:nth-child(2) { animation-delay: 0.08s; }
+    .hub__main > *:nth-child(3) { animation-delay: 0.14s; }
+    .hub__side > *:nth-child(1) { animation-delay: 0.1s; }
+    .hub__side > *:nth-child(2) { animation-delay: 0.16s; }
+
+    .hub > * {
+      animation: none;
+    }
 
     .stage {
-      padding: 6px 0 2px;
+      padding: 2px 0 2px;
       text-align: left;
+    }
+    .stage__pets-wrap {
+      position: relative;
+      margin-bottom: 20px;
+    }
+    .stage__pets-wrap--overflow::before,
+    .stage__pets-wrap--overflow::after {
+      content: '';
+      position: absolute;
+      top: 0; bottom: 8px;
+      width: 28px;
+      z-index: 1;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .stage__pets-wrap--left::before {
+      left: 0;
+      background: linear-gradient(to right, #FCFCFB 20%, transparent);
+      opacity: 1;
+    }
+    .stage__pets-wrap--right::after {
+      right: 0;
+      background: linear-gradient(to left, #FCFCFB 20%, transparent);
+      opacity: 1;
     }
     .stage__pets {
       display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 18px;
+      align-items: flex-start;
+      gap: 16px;
       overflow-x: auto;
-      padding: 2px;
+      padding: 4px 2px 8px;
+      scroll-snap-type: x mandatory;
       -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
-    .stage__kicker {
-      margin: 0 0 8px;
-      font-family: var(--vos-mono);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: #FD4A29;
+    .stage__pets::-webkit-scrollbar { display: none; }
+    .pets-nav {
+      position: absolute;
+      top: 14px;
+      z-index: 2;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      border: 1px solid var(--vos-border);
+      background: #fff;
+      color: var(--vos-ink);
+      font-size: 1.25rem;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(10, 10, 10, 0.08);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
     }
+    .pets-nav--prev { left: 0; }
+    .pets-nav--next { right: 0; }
+
     .stage__title {
       margin: 0;
       font-family: var(--vos-display);
-      font-size: clamp(1.85rem, 5vw, 2.55rem);
+      font-size: clamp(1.95rem, 4.5vw, 2.75rem);
       letter-spacing: -0.045em;
       line-height: 1.08;
-      max-width: 14ch;
+      max-width: none;
     }
     .stage__whisper {
-      margin: 12px 0 0;
+      margin: 10px 0 0;
       color: var(--vos-ink-muted);
-      font-size: 1.05rem;
+      font-size: 1.08rem;
       line-height: 1.45;
-      max-width: 38ch;
+      max-width: 52ch;
+    }
+
+    .stats {
+      list-style: none;
+      margin: 18px 0 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+    }
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: #fff;
+      border: 1px solid var(--vos-border);
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s ease, transform 0.15s ease;
+      box-shadow: 0 4px 14px rgba(10, 10, 10, 0.03);
+    }
+    .stat:hover {
+      border-color: rgba(253, 74, 41, 0.35);
+      transform: translateY(-1px);
+    }
+    .stat em {
+      font-style: normal;
+      font-family: var(--vos-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--vos-ink-muted);
+    }
+    .stat strong {
+      font-family: var(--vos-display);
+      font-size: 0.95rem;
+      letter-spacing: -0.02em;
+      font-weight: 700;
+      line-height: 1.25;
     }
 
     .pet-chip {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      width: 64px;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      cursor: pointer;
+      flex-shrink: 0;
+      scroll-snap-align: start;
+      transition: transform 0.18s ease;
+    }
+    .pet-chip:hover { transform: translateY(-2px); }
+    .pet-chip__avatar {
       width: 52px; height: 52px;
       border-radius: 50%;
       border: 2.5px solid transparent;
-      padding: 0;
-      background: #fffef9;
-      cursor: pointer;
       overflow: hidden;
-      flex-shrink: 0;
-      transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+      background: #fffef9;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease;
     }
-    .pet-chip.on {
+    .pet-chip.on .pet-chip__avatar {
       border-color: #FD4A29;
       box-shadow: 0 0 0 4px rgba(253,74,41,0.16);
-      transform: scale(1.04);
     }
-    .pet-chip:hover { transform: translateY(-2px); }
-    .pet-chip img, .ph {
+    .pet-chip__name {
+      max-width: 64px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      line-height: 1.2;
+      text-align: center;
+      color: var(--vos-ink-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .pet-chip.on .pet-chip__name { color: var(--vos-ink); }
+    .pet-chip__avatar img,
+    .pet-chip__avatar .ph {
       width: 100%; height: 100%;
       object-fit: cover;
       display: flex; align-items: center; justify-content: center;
       font-family: var(--vos-display);
       font-weight: 700; font-size: 1.15rem;
+      text-transform: uppercase;
       color: #FD4A29;
       background: var(--vos-brand-soft);
     }
     .pet-add {
-      width: 48px; height: 48px;
+      width: 64px;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      color: var(--vos-ink-muted);
+      flex-shrink: 0;
+      scroll-snap-align: start;
+      transition: color 0.18s ease;
+    }
+    .pet-add__icon {
+      width: 52px; height: 52px;
       border-radius: 50%;
       display: inline-flex; align-items: center; justify-content: center;
       border: 1.5px dashed var(--vos-border);
@@ -633,19 +843,23 @@ import { ActivePetService } from '../../services/active-pet.service';
       color: var(--vos-ink);
       font-size: 1.35rem;
       font-weight: 600;
-      text-decoration: none;
-      flex-shrink: 0;
       line-height: 1;
       transition: border-color 0.18s ease, color 0.18s ease;
     }
-    .pet-add:hover { border-color: #FD4A29; color: #FD4A29; }
+    .pet-add__label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .pet-add:hover { color: #FD4A29; }
+    .pet-add:hover .pet-add__icon { border-color: #FD4A29; color: #FD4A29; }
 
     .moment {
       position: relative;
       overflow: hidden;
       border-radius: 28px;
-      padding: 26px 24px 24px;
       color: #fff;
+      min-height: 200px;
       background:
         radial-gradient(ellipse 90% 100% at 100% -20%, rgba(255,255,255,0.28) 0%, transparent 55%),
         linear-gradient(145deg, #FD4A29 0%, #E03E20 45%, #1a100e 100%);
@@ -653,11 +867,38 @@ import { ActivePetService } from '../../services/active-pet.service';
       transition: transform 0.22s var(--vs-ease, ease);
     }
     .moment:hover { transform: translateY(-3px); }
-    .moment__glow {
-      position: absolute; inset: auto -30% -50% 30%;
-      height: 90%;
-      background: radial-gradient(circle, rgba(255,255,255,0.14), transparent 68%);
-      pointer-events: none;
+    .moment__inner {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: center;
+      padding: 32px clamp(22px, 3vw, 36px);
+      min-height: 200px;
+      box-sizing: border-box;
+    }
+    @media (max-width: 640px) {
+      .moment__inner { grid-template-columns: 1fr; padding: 26px 22px; }
+      .moment__art { display: none; }
+    }
+    .moment__copy { position: relative; z-index: 1; max-width: 48ch; }
+    .moment__art {
+      width: 110px; height: 110px;
+      border-radius: 28px;
+      background: rgba(255,255,255,0.12);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .moment__paw {
+      width: 42px; height: 42px;
+      border-radius: 50% 50% 45% 45%;
+      background: rgba(255,255,255,0.35);
+      position: relative;
+      box-shadow:
+        -18px -16px 0 -10px rgba(255,255,255,0.35),
+        18px -16px 0 -10px rgba(255,255,255,0.35),
+        -22px 2px 0 -12px rgba(255,255,255,0.3),
+        22px 2px 0 -12px rgba(255,255,255,0.3);
     }
     .moment__label {
       margin: 0 0 10px;
@@ -670,23 +911,20 @@ import { ActivePetService } from '../../services/active-pet.service';
     }
     .moment__title {
       display: block;
-      position: relative;
       font-family: var(--vos-display);
-      font-size: clamp(1.5rem, 3.5vw, 1.95rem);
+      font-size: clamp(1.55rem, 3.2vw, 2.05rem);
       letter-spacing: -0.035em;
       line-height: 1.12;
-      max-width: 16ch;
+      max-width: none;
     }
     .moment__detail {
-      position: relative;
-      margin: 10px 0 20px;
+      margin: 10px 0 22px;
       opacity: 0.92;
-      font-size: 1.02rem;
+      font-size: 1.05rem;
       line-height: 1.4;
-      max-width: 36ch;
+      max-width: 44ch;
     }
     .moment__cta {
-      position: relative;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -700,12 +938,18 @@ import { ActivePetService } from '../../services/active-pet.service';
       text-decoration: none;
       transition: background 0.18s ease, transform 0.18s ease;
     }
+    .moment__ctas { display: flex; flex-wrap: wrap; gap: 10px; }
+    .moment__cta--ghost {
+      background: transparent;
+      border: 1.5px solid rgba(255,255,255,0.55);
+    }
+    .moment__cta--ghost:hover { background: rgba(255,255,255,0.12) !important; }
     .moment__cta:hover { background: #1a1a1a; transform: translateY(-1px); }
 
     .sec-h {
-      margin: 0 0 12px;
+      margin: 0 0 14px;
       font-family: var(--vos-display);
-      font-size: 1.15rem;
+      font-size: 1.25rem;
       letter-spacing: -0.03em;
     }
     .sec-row {
@@ -713,7 +957,7 @@ import { ActivePetService } from '../../services/active-pet.service';
       align-items: baseline;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
     }
     .sec-row .sec-h { margin: 0; }
     .sec-link {
@@ -723,45 +967,52 @@ import { ActivePetService } from '../../services/active-pet.service';
       color: #FD4A29;
     }
 
+    .paths {
+      width: 100%;
+    }
     .paths__row {
       display: grid;
-      gap: 10px;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      width: 100%;
     }
-    @media (min-width: 640px) {
-      .paths__row { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    @media (min-width: 700px) {
+      .paths__row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
     }
     .path {
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      padding: 18px 16px;
-      border-radius: 18px;
-      background: #fffef9;
+      gap: 8px;
+      padding: 22px 20px;
+      border-radius: 20px;
+      background: #fff;
       border: 1px solid var(--vos-border);
       text-decoration: none;
       color: inherit;
       box-shadow: 0 8px 22px rgba(10, 10, 10, 0.04);
       transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-      min-height: 96px;
+      min-height: 112px;
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
     }
     .path:hover {
       transform: translateY(-3px);
       border-color: rgba(253, 74, 41, 0.35);
       box-shadow: 0 14px 32px rgba(10, 10, 10, 0.08);
     }
-    .path--primary {
-      background: linear-gradient(180deg, #fffef9 0%, #fff1ec 100%);
-      border-color: rgba(253, 74, 41, 0.28);
-    }
     .path strong {
       font-family: var(--vos-display);
-      font-size: 1.08rem;
+      font-size: 1.12rem;
       letter-spacing: -0.025em;
       line-height: 1.2;
     }
     .path span {
       color: var(--vos-ink-muted);
-      font-size: 0.9rem;
+      font-size: 0.92rem;
       line-height: 1.35;
     }
     .paths__emer {
@@ -775,7 +1026,11 @@ import { ActivePetService } from '../../services/active-pet.service';
     .paths__emer:hover { text-decoration: underline; }
 
     .care {
-      padding: 4px 2px 0;
+      padding: 18px 18px 8px;
+      border-radius: 20px;
+      background: #fff;
+      border: 1px solid var(--vos-border);
+      box-shadow: 0 8px 22px rgba(10, 10, 10, 0.04);
     }
     .care__row {
       display: flex;
@@ -794,6 +1049,13 @@ import { ActivePetService } from '../../services/active-pet.service';
     }
     .care__row span { color: var(--vos-ink-muted); font-size: 0.9rem; }
 
+    .upcom {
+      padding: 18px;
+      border-radius: 20px;
+      background: #fff;
+      border: 1px solid var(--vos-border);
+      box-shadow: 0 8px 22px rgba(10, 10, 10, 0.04);
+    }
     .upcom__list { display: grid; gap: 8px; }
     .upcom__card {
       position: relative;
@@ -848,9 +1110,12 @@ import { ActivePetService } from '../../services/active-pet.service';
     .util {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px 18px;
-      justify-content: center;
-      padding: 8px 0 2px;
+      gap: 8px 14px;
+      justify-content: flex-start;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: #F7F7F5;
+      border: 1px solid var(--vos-border);
     }
     .util a {
       font-family: var(--vos-mono);
@@ -870,12 +1135,19 @@ import { ActivePetService } from '../../services/active-pet.service';
     }
   `],
 })
-export class HomeComponent implements OnInit {
+export class HomeComponent implements OnInit, AfterViewChecked {
+  @ViewChild('petsRow') petsRow?: ElementRef<HTMLDivElement>;
+
   readonly loading = signal(true);
   readonly error = signal('');
   readonly home = signal<any>(null);
   readonly health = signal<any>(null);
   readonly careNext = signal<any>(null);
+  readonly brokenPhotos = signal<Set<string>>(new Set());
+  readonly petsOverflow = signal(false);
+  readonly canScrollPetsLeft = signal(false);
+  readonly canScrollPetsRight = signal(false);
+  private petsOverflowDirty = false;
 
   constructor(
     private readonly api: CustomerApiService,
@@ -886,6 +1158,18 @@ export class HomeComponent implements OnInit {
     void this.load();
   }
 
+  ngAfterViewChecked() {
+    if (this.petsOverflowDirty) {
+      this.petsOverflowDirty = false;
+      this.updatePetsOverflow();
+    }
+  }
+
+  @HostListener('window:resize')
+  onResize() {
+    this.updatePetsOverflow();
+  }
+
   splashGreeting(greeting: string | null | undefined): string {
     const g = String(greeting || 'Welcome').trim();
     return g.replace(/\.$/, '');
@@ -894,15 +1178,68 @@ export class HomeComponent implements OnInit {
   firstName(greeting: string | null | undefined): string {
     const g = String(greeting || '').trim();
     const m = g.match(/,\s*([^.,]+)/);
-    if (m?.[1]) return m[1].trim();
+    if (m?.[1]) return this.displayPetName(m[1].trim());
     const customer = this.home()?.customer;
     const fromProfile = String(customer?.fullName || '').trim().split(/\s+/)[0];
-    return fromProfile || 'there';
+    return this.displayPetName(fromProfile || 'there');
   }
 
-  petQuery() {
+  displayPetName(name: string | null | undefined): string {
+    const raw = String(name || '').trim();
+    if (!raw) return 'Pet';
+    return raw
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+  }
+
+  petInitial(name: string | null | undefined): string {
+    const n = String(name || '?').trim();
+    return (n.charAt(0) || '?').toUpperCase();
+  }
+
+  showPetPhoto(p: { id?: string; photoUrl?: string | null }): boolean {
+    return !!(p?.photoUrl && p.id && !this.brokenPhotos().has(p.id));
+  }
+
+  onPetPhotoError(id: string) {
+    if (!id) return;
+    this.brokenPhotos.update((set) => {
+      const next = new Set(set);
+      next.add(id);
+      return next;
+    });
+  }
+
+  onPetsScroll() {
+    this.updatePetsOverflow();
+  }
+
+  scrollPets(dir: -1 | 1) {
+    const el = this.petsRow?.nativeElement;
+    if (!el) return;
+    el.scrollBy({ left: dir * Math.max(160, el.clientWidth * 0.6), behavior: 'smooth' });
+  }
+
+  private updatePetsOverflow() {
+    const el = this.petsRow?.nativeElement;
+    if (!el) {
+      this.petsOverflow.set(false);
+      this.canScrollPetsLeft.set(false);
+      this.canScrollPetsRight.set(false);
+      return;
+    }
+    const overflow = el.scrollWidth > el.clientWidth + 4;
+    const left = el.scrollLeft > 4;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    if (this.petsOverflow() !== overflow) this.petsOverflow.set(overflow);
+    if (this.canScrollPetsLeft() !== left) this.canScrollPetsLeft.set(left);
+    if (this.canScrollPetsRight() !== (overflow && right)) this.canScrollPetsRight.set(overflow && right);
+  }
+
+  petQuery(): Record<string, string> {
     const id = this.home()?.activePet?.id || this.activePet.get();
-    return id ? { petId: id } : {};
+    return id ? { petId: String(id) } : {};
   }
 
   dueDate(v: string | null | undefined) {
@@ -912,13 +1249,17 @@ export class HomeComponent implements OnInit {
   healthWhisper(): string {
     const h = this.home();
     const hs = this.health();
-    const pet = h?.activePet?.name || 'your pet';
+    const petRaw = h?.activePet?.name;
+    const pet = petRaw ? this.displayPetName(petRaw) : 'your pet';
     if (h?.upcoming?.[0]) {
       const up = h.upcoming[0];
-      return `${up.petName || pet} has a visit ${this.prettyWhen(up.scheduledDate, up.scheduledTime)}.`;
+      return `${this.displayPetName(up.petName || petRaw || 'Your pet')} has a visit ${this.prettyWhen(up.scheduledDate, up.scheduledTime)}.`;
     }
     const med = hs?.careStatus?.activeMedications?.[0];
-    if (med) return `${med.medicine} is on today’s list for ${med.petName || pet}.`;
+    if (med) {
+      const who = med.petName ? this.displayPetName(med.petName) : pet;
+      return `${med.medicine} is on today’s list for ${who}.`;
+    }
     const fu = hs?.careStatus?.upcomingFollowUp;
     if (fu) return `A follow-up is coming up${fu.dueAt ? ` · ${String(fu.dueAt).slice(0, 10)}` : ''}.`;
     const vax = hs?.careStatus?.nextVaccination;
@@ -927,8 +1268,95 @@ export class HomeComponent implements OnInit {
     return `We’re here whenever ${pet} needs a vet at home.`;
   }
 
+  healthSnapshot(): Array<{
+    key: string;
+    label: string;
+    value: string;
+    commands: any[];
+    queryParams?: Record<string, string>;
+  }> {
+    const h = this.home();
+    const hs = this.health();
+    if (!h?.pets?.length) return [];
+    const snaps: Array<{
+      key: string;
+      label: string;
+      value: string;
+      commands: any[];
+      queryParams?: Record<string, string>;
+    }> = [];
+
+    const up = h.upcoming?.[0];
+    if (up) {
+      snaps.push({
+        key: 'appt',
+        label: 'Next visit',
+        value: this.prettyWhen(up.scheduledDate, up.scheduledTime),
+        commands: ['/bookings', up.id],
+      });
+    } else {
+      snaps.push({
+        key: 'appt',
+        label: 'Next visit',
+        value: 'None scheduled',
+        commands: ['/book/new'],
+        queryParams: this.petQuery(),
+      });
+    }
+
+    const vax = hs?.careStatus?.nextVaccination;
+    if (vax) {
+      snaps.push({
+        key: 'vax',
+        label: 'Next vaccine',
+        value: `${vax.vaccineName} · ${vax.nextDueOn || 'soon'}`,
+        commands: h.activePet?.id ? ['/pets', h.activePet.id, 'vaccinations'] : ['/reminders'],
+      });
+    }
+
+    const med = hs?.careStatus?.activeMedications?.[0] || h.medications?.[0];
+    if (med) {
+      snaps.push({
+        key: 'med',
+        label: 'Medication',
+        value: med.medicine || 'Active meds',
+        commands: ['/medications'],
+      });
+    }
+
+    const recent = h.recentVisit;
+    if (recent && snaps.length < 3) {
+      snaps.push({
+        key: 'recent',
+        label: 'Last visit',
+        value: this.formatVisitWhen(recent.date || recent.occurredAt) || recent.title || 'Recent',
+        commands: this.visitLink(recent),
+      });
+    }
+
+    return snaps.slice(0, 3);
+  }
+
   hasUpcoming(): boolean {
     return !!(this.home()?.upcoming?.[0]?.id);
+  }
+
+  activeVisitForPet(): any | null {
+    const h = this.home();
+    const petId = h?.activePet?.id;
+    const list = h?.upcoming || [];
+    if (!list.length) return null;
+    if (petId) {
+      const hit = list.find((u: any) => u.petId === petId);
+      if (hit) return hit;
+      // If upcoming entries lack petId, treat first as active for this pet when names match.
+      const name = String(h?.activePet?.name || '').toLowerCase();
+      if (name) {
+        const byName = list.find((u: any) => String(u.petName || '').toLowerCase() === name);
+        if (byName) return byName;
+      }
+    }
+    return null;
   }
 
   extraUpcoming(): any[] {
@@ -984,7 +1412,7 @@ export class HomeComponent implements OnInit {
       bits.push({
         key: 'visit',
         title: h.recentVisit.title || 'Recent visit',
-        detail: `${h.recentVisit.date || h.recentVisit.occurredAt || ''}${
+        detail: `${this.formatVisitWhen(h.recentVisit.date || h.recentVisit.occurredAt)}${
           h.recentVisit.doctorName ? ` · ${h.recentVisit.doctorName}` : ''
         }`.trim(),
         commands: this.visitLink(h.recentVisit),
@@ -999,6 +1427,8 @@ export class HomeComponent implements OnInit {
     commands: any[];
     queryParams?: Record<string, string>;
     cta: string;
+    secondaryCommands?: any[];
+    secondaryCta?: string;
   } | null {
     const h = this.home();
     const hs = this.health();
@@ -1006,12 +1436,14 @@ export class HomeComponent implements OnInit {
 
     const up = h.upcoming?.[0];
     if (up?.id) {
-      const pet = up.petName || h.activePet?.name || 'Your pet';
+      const pet = this.displayPetName(up.petName || h.activePet?.name || 'Your pet');
       return {
         title: `${pet}’s home visit`,
         detail: `${up.customerStatus?.label || 'Scheduled'} · ${this.prettyWhen(up.scheduledDate, up.scheduledTime)}`,
         commands: ['/bookings', up.id],
         cta: 'Open visit',
+        secondaryCommands: ['/bookings', up.id],
+        secondaryCta: 'Modify visit',
       };
     }
 
@@ -1019,7 +1451,7 @@ export class HomeComponent implements OnInit {
     if (med) {
       return {
         title: `Time for ${med.medicine}`,
-        detail: `${med.petName || h.activePet?.name || 'Your pet'} · ${med.frequency || 'Today'}`,
+        detail: `${this.displayPetName(med.petName || h.activePet?.name || 'Your pet')} · ${med.frequency || 'Today'}`,
         commands: ['/medications'],
         cta: 'Open medications',
       };
@@ -1028,7 +1460,7 @@ export class HomeComponent implements OnInit {
     if (fu) {
       return {
         title: fu.reason || 'Follow-up due',
-        detail: `${fu.petName || h.activePet?.name || ''} · ${(fu.dueAt || '').slice(0, 10)}`,
+        detail: `${this.displayPetName(fu.petName || h.activePet?.name || '')} · ${(fu.dueAt || '').slice(0, 10)}`,
         commands: ['/follow-ups'],
         cta: 'View follow-up',
       };
@@ -1037,25 +1469,26 @@ export class HomeComponent implements OnInit {
     if (vax && h.activePet?.id) {
       return {
         title: `${vax.vaccineName} coming up`,
-        detail: `Due ${vax.nextDueOn || 'soon'} for ${h.activePet.name}`,
+        detail: `Due ${vax.nextDueOn || 'soon'} for ${this.displayPetName(h.activePet.name)}`,
         commands: ['/pets', h.activePet.id, 'vaccinations'],
         cta: 'View vaccines',
       };
     }
     if (h.activePet?.id) {
+      const pet = this.displayPetName(h.activePet.name);
       return {
-        title: `Ready when ${h.activePet.name} needs you`,
+        title: `Ready when ${pet} needs you`,
         detail: 'Book a vet at your door, or talk through what’s going on.',
         commands: ['/book/new'],
         queryParams: { petId: h.activePet.id },
-        cta: 'Book a visit',
+        cta: `Schedule ${pet}’s checkup`,
       };
     }
     return {
-      title: 'Book a home visit',
+      title: 'Ready for a home visit?',
       detail: 'A vet at your door — pick a time that works.',
       commands: ['/book/new'],
-      cta: 'Book a visit',
+      cta: 'Schedule a checkup',
     };
   }
 
@@ -1071,6 +1504,14 @@ export class HomeComponent implements OnInit {
       day: 'numeric',
     });
     return time ? `${day} · ${time}` : day;
+  }
+
+  formatVisitWhen(raw?: string | null): string {
+    if (!raw) return '';
+    const s = String(raw);
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return this.prettyWhen(s);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return this.prettyWhen(s.slice(0, 10));
+    return s;
   }
 
   visitLink(ev: any): any[] {
@@ -1145,6 +1586,7 @@ export class HomeComponent implements OnInit {
       const data = await this.api.home(id);
       this.activePet.syncFromPets(data.pets || [], data.activePet?.id || id);
       this.home.set(data);
+      this.petsOverflowDirty = true;
       // Show home immediately (esp. empty-pet onboarding) before secondary fetches
       this.loading.set(false);
 
@@ -1156,6 +1598,7 @@ export class HomeComponent implements OnInit {
         ]);
         this.health.set(hs);
         this.careNext.set(cn);
+        this.petsOverflowDirty = true;
       } else {
         this.health.set(null);
         this.careNext.set(null);

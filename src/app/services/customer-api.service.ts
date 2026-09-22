@@ -13,6 +13,17 @@ export class CustomerApiService {
     return res.data;
   }
 
+  private listOf(raw: unknown, keys: string[]): any[] {
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === 'object') {
+      const obj = raw as Record<string, unknown>;
+      for (const k of keys) {
+        if (Array.isArray(obj[k])) return obj[k] as any[];
+      }
+    }
+    return [];
+  }
+
   me() {
     return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me`)));
   }
@@ -51,7 +62,9 @@ export class CustomerApiService {
 
   followUps(petId?: string | null) {
     const q = petId ? `?petId=${encodeURIComponent(petId)}` : '';
-    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/follow-ups${q}`)));
+    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/follow-ups${q}`))).then(
+      (d) => this.listOf(d, ['followUps', 'items', 'data']),
+    );
   }
   ackFollowUp(id: string) {
     return this.data(
@@ -78,17 +91,17 @@ export class CustomerApiService {
   conditions(petId: string) {
     return this.data(
       firstValueFrom(this.http.get<any>(`${this.base}/customers/me/pets/${petId}/conditions`)),
-    );
+    ).then((d) => this.listOf(d, ['conditions', 'items', 'data']));
   }
   vaccinations(petId: string) {
     return this.data(
       firstValueFrom(this.http.get<any>(`${this.base}/customers/me/pets/${petId}/vaccinations`)),
-    );
+    ).then((d) => this.listOf(d, ['vaccinations', 'items', 'data']));
   }
   carePlans(petId: string) {
     return this.data(
       firstValueFrom(this.http.get<any>(`${this.base}/customers/me/pets/${petId}/care-plans`)),
-    );
+    ).then((d) => this.listOf(d, ['carePlans', 'plans', 'items', 'data']));
   }
   updateCarePlanItem(id: string, body: { status: string }) {
     return this.data(
@@ -97,7 +110,9 @@ export class CustomerApiService {
   }
   reminders(petId?: string | null) {
     const q = petId ? `?petId=${encodeURIComponent(petId)}` : '';
-    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/reminders${q}`)));
+    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/reminders${q}`))).then(
+      (d) => this.listOf(d, ['reminders', 'items', 'data']),
+    );
   }
   refreshReminders(petId: string) {
     return this.data(
@@ -137,11 +152,21 @@ export class CustomerApiService {
       firstValueFrom(
         this.http.get<any>(`${this.base}/customers/me/pets/${petId}/vitals/weight`),
       ),
+    ).then((d) => this.listOf(d, ['points', 'weights', 'items', 'data', 'vitals']));
+  }
+
+  addWeight(petId: string, body: { value: number; unit?: string; recordedAt?: string; note?: string }) {
+    return this.data(
+      firstValueFrom(
+        this.http.post<any>(`${this.base}/customers/me/pets/${petId}/vitals/weight`, body),
+      ),
     );
   }
 
   addresses() {
-    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/addresses`)));
+    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/addresses`))).then((d) =>
+      this.listOf(d, ['addresses', 'items', 'data']),
+    );
   }
   createAddress(body: Record<string, unknown>) {
     return this.data(firstValueFrom(this.http.post<any>(`${this.base}/customers/me/addresses`, body)));
@@ -165,11 +190,15 @@ export class CustomerApiService {
 
   documents(petId?: string | null) {
     const q = petId ? `?petId=${encodeURIComponent(petId)}` : '';
-    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/documents${q}`)));
+    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/documents${q}`))).then(
+      (d) => this.listOf(d, ['documents', 'files', 'items', 'data']),
+    );
   }
 
   supportTickets() {
-    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/support`)));
+    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/support`))).then((d) =>
+      this.listOf(d, ['tickets', 'items', 'data', 'support']),
+    );
   }
   createSupport(body: Record<string, unknown>) {
     return this.data(firstValueFrom(this.http.post<any>(`${this.base}/customers/me/support`, body)));
@@ -184,7 +213,7 @@ export class CustomerApiService {
   caregivers(petId: string) {
     return this.data(
       firstValueFrom(this.http.get<any>(`${this.base}/customers/me/pets/${petId}/caregivers`)),
-    );
+    ).then((d) => this.listOf(d, ['caregivers', 'items', 'data']));
   }
   inviteCaregiver(petId: string, body: Record<string, unknown>) {
     return this.data(
@@ -213,6 +242,11 @@ export class CustomerApiService {
       firstValueFrom(this.http.post<any>(`${this.base}/customers/me/bookings`, body, { headers })),
     );
   }
+  updateBooking(id: string, body: Record<string, unknown>) {
+    return this.data(
+      firstValueFrom(this.http.patch<any>(`${this.base}/customers/me/bookings/${id}`, body)),
+    );
+  }
   uploadBookingFiles(bookingId: string, files: File[], category = 'problemMedia') {
     const fd = new FormData();
     for (const f of files) fd.append('files', f);
@@ -231,10 +265,50 @@ export class CustomerApiService {
     const q = unreadOnly ? '?unread=true' : '';
     return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/notifications${q}`)));
   }
+
+  /** Normalize notifications list + unread count from varied API shapes. */
+  parseNotifications(raw: any): { items: any[]; unreadCount: number } {
+    const items = Array.isArray(raw)
+      ? raw
+      : Array.isArray(raw?.items)
+        ? raw.items
+        : Array.isArray(raw?.notifications)
+          ? raw.notifications
+          : Array.isArray(raw?.data)
+            ? raw.data
+            : [];
+    const unreadFromItems = items.filter((n: any) => !n?.readAt && !n?.read && n?.unread !== false).length;
+    const declared =
+      typeof raw?.unreadCount === 'number'
+        ? raw.unreadCount
+        : typeof raw?.unread === 'number'
+          ? raw.unread
+          : typeof raw?.meta?.unreadCount === 'number'
+            ? raw.meta.unreadCount
+            : null;
+    return { items, unreadCount: declared != null ? declared : unreadFromItems };
+  }
   markNotificationRead(id: string) {
     return this.data(
       firstValueFrom(this.http.post<any>(`${this.base}/customers/me/notifications/${id}/read`, {})),
     );
+  }
+
+  /** Mark many as read — tries bulk endpoint, then falls back to per-id. */
+  async markAllNotificationsRead(ids: string[]) {
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return;
+    try {
+      await this.data(
+        firstValueFrom(
+          this.http.post<any>(`${this.base}/customers/me/notifications/read-all`, { ids: list }),
+        ),
+      );
+      return;
+    } catch {
+      /* fall through */
+    }
+    await Promise.all(list.map((id) => this.markNotificationRead(id).catch(() => null)));
   }
 
   petTimeline(petId: string) {
@@ -281,7 +355,9 @@ export class CustomerApiService {
 
   diagnostics(petId?: string | null) {
     const q = petId ? `?petId=${encodeURIComponent(petId)}` : '';
-    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/diagnostics${q}`)));
+    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/diagnostics${q}`))).then(
+      (d) => this.listOf(d, ['diagnostics', 'items', 'orders', 'data']),
+    );
   }
   diagnostic(id: string) {
     return this.data(
