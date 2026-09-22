@@ -27,7 +27,7 @@ import { ActivePetService } from '../../services/active-pet.service';
           </a>
         }
         @if (s.careStatus?.activeMedications?.length) {
-          <a class="row" routerLink="/medications">
+          <a class="row" [routerLink]="['/pets', petId, 'medications']">
             <strong>Medications</strong>
             <span>{{ s.careStatus.activeMedications.length }} active · next {{ s.careStatus.activeMedications[0].medicine }}</span>
           </a>
@@ -41,7 +41,7 @@ import { ActivePetService } from '../../services/active-pet.service';
         @if (s.careStatus?.lastVisit; as lv) {
           <a class="row" [routerLink]="['/visits', lv.id]">
             <strong>Last visit</strong>
-            <span>{{ (lv.completedAt || '').slice(0, 10) }} · Dr. {{ lv.doctorName || '—' }}</span>
+            <span>{{ (lv.completedAt || '').slice(0, 10) }} · {{ doctorLabel(lv.doctorName) }}</span>
           </a>
         }
         @if (s.careStatus?.lastWeight; as w) {
@@ -96,18 +96,19 @@ import { ActivePetService } from '../../services/active-pet.service';
         <a class="vos-btn vos-btn-ghost" [routerLink]="['/assistant']" [queryParams]="{ petId }">VetonSpot Assistant</a>
       </div>
 
-      <nav class="links" aria-label="Health sections">
-        <a [routerLink]="['/pets', petId, 'timeline']">Timeline</a>
-        <a routerLink="/medications">Medications</a>
-        <a [routerLink]="['/pets', petId, 'vaccinations']">Vaccinations</a>
-        <a routerLink="/diagnostics">Diagnostics</a>
-        <a [routerLink]="['/pets', petId, 'conditions']">Conditions</a>
-        <a [routerLink]="['/pets', petId, 'care-plans']">Care plans</a>
-        <a [routerLink]="['/pets', petId, 'documents']">Documents</a>
-        <a [routerLink]="['/pets', petId, 'reminders']">Reminders</a>
-        <a [routerLink]="['/pets', petId, 'calendar']">Calendar</a>
-        <a [routerLink]="['/pets', petId, 'weight']">Weight</a>
-        <a [routerLink]="['/pets', petId, 'passport']">Passport</a>
+      <nav class="tabs" aria-label="Health sections">
+        <a class="tab on" [routerLink]="['/pets', petId, 'health']">Overview</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'timeline']">Timeline</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'medications']">Medications</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'vaccinations']">Vaccinations</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'diagnostics']">Diagnostics</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'conditions']">Conditions</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'care-plans']">Care plans</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'documents']">Documents</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'reminders']">Reminders</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'calendar']">Calendar</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'weight']">Weight</a>
+        <a class="tab" [routerLink]="['/pets', petId, 'passport']">Passport</a>
       </nav>
     }
   `,
@@ -124,11 +125,21 @@ import { ActivePetService } from '../../services/active-pet.service';
     .row span { color: var(--vos-ink-muted); font-size: 0.9rem; }
     .note { margin: 12px 0 0; font-size: 0.85rem; color: var(--vos-ink-muted); }
     .quick-actions { display: grid; gap: 8px; margin: 14px 0; }
-    .links { display: grid; gap: 8px; margin-top: 14px; }
-    .links a {
-      display: block; background: var(--vos-surface); border: 1px solid var(--vos-border);
-      border-radius: var(--vos-radius-sm); padding: 12px 14px; text-decoration: none;
-      color: var(--vos-ink); font-weight: 600;
+    .tabs {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin: 14px 0 0; padding: 4px;
+      background: #f3efe6; border-radius: 14px;
+    }
+    .tab {
+      display: inline-flex; align-items: center;
+      min-height: 36px; padding: 6px 12px; border-radius: 10px;
+      text-decoration: none; color: var(--vos-ink-muted);
+      font-weight: 700; font-size: 0.88rem; white-space: nowrap;
+    }
+    .tab:hover { color: var(--vos-ink); background: rgba(255,255,255,0.55); }
+    .tab.on {
+      background: #fff; color: var(--vos-ink);
+      box-shadow: 0 4px 12px rgba(10, 10, 10, 0.06);
     }
     .linkish {
       margin-left: 8px; background: none; border: 0; color: var(--vos-brand);
@@ -159,16 +170,23 @@ export class PetHealthComponent implements OnInit {
     return (list || []).map((c) => c?.name).filter(Boolean).join(', ');
   }
 
+  doctorLabel(name: string | null | undefined): string {
+    let n = String(name || '').trim();
+    if (!n) return 'Doctor TBD';
+    n = n.replace(/^(Dr\.?\s*)+/i, '').trim();
+    return n ? `Dr. ${n}` : 'Doctor TBD';
+  }
+
   careLink(item: any): any {
     switch (item?.type) {
       case 'follow_up':
         return '/follow-ups';
       case 'medications':
-        return '/medications';
+        return ['/pets', this.petId, 'medications'];
       case 'vaccination':
         return ['/pets', this.petId, 'vaccinations'];
       case 'lab':
-        return '/diagnostics';
+        return ['/pets', this.petId, 'diagnostics'];
       case 'reminders':
         return ['/pets', this.petId, 'reminders'];
       default:

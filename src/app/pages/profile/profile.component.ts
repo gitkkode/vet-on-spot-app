@@ -9,55 +9,61 @@ import { CustomerApiService } from '../../services/customer-api.service';
   imports: [FormsModule, RouterLink],
   selector: 'app-profile',
   template: `
-    @if (error()) {
-      <div class="vos-err">{{ error() }}</div>
-    }
-    @if (ok()) {
-      <div class="vos-ok">{{ ok() }}</div>
-    }
-    @if (loading()) {
-      <div class="vos-skel"></div>
-      <div class="vos-skel"></div>
-    } @else {
-      <header class="profile-hero">
-        <div class="profile-hero__avatar" aria-hidden="true">{{ initials() }}</div>
-        <div>
-          <p class="profile-hero__eyebrow">Your household</p>
-          <h1>{{ fullName || 'Pet parent' }}</h1>
-          @if (email) {
-            <p class="profile-hero__email">{{ email }}</p>
-          }
-          <p class="profile-hero__status">{{ petStatus() }}</p>
-        </div>
-      </header>
+    <div class="wrap">
+      @if (error()) {
+        <div class="vos-err">{{ error() }}</div>
+      }
+      @if (ok()) {
+        <div class="vos-ok">{{ ok() }}</div>
+      }
+      @if (loading()) {
+        <div class="vos-skel"></div>
+        <div class="vos-skel"></div>
+      } @else {
+        <header class="profile-hero">
+          <div class="profile-hero__avatar" aria-hidden="true">{{ initials() }}</div>
+          <div>
+            <p class="profile-hero__eyebrow">Your household</p>
+            <h1>{{ fullName || 'Pet parent' }}</h1>
+            @if (email) {
+              <p class="profile-hero__email">{{ email }}</p>
+            }
+            <p class="profile-hero__status">{{ petStatus() }}</p>
+          </div>
+        </header>
 
-      <form class="profile-form" (ngSubmit)="save()">
-        <label class="vos-field">Full name<input [(ngModel)]="fullName" name="fullName" /></label>
-        <label class="vos-field">Mobile<input [(ngModel)]="mobile" name="mobile" /></label>
-        <label class="vos-field">Email<input [(ngModel)]="email" name="email" /></label>
-        <label class="vos-field"
-          >Address<textarea [(ngModel)]="address" name="address" rows="3"></textarea
-        ></label>
-        <label class="vos-field"
-          >Emergency contact<input [(ngModel)]="emergencyContact" name="emergencyContact"
-        /></label>
-        <button type="submit" class="vos-btn" [disabled]="saving()">
-          {{ saving() ? 'Saving…' : 'Save profile' }}
-        </button>
-      </form>
+        <form class="profile-form" (ngSubmit)="save()">
+          <label class="vos-field">Full name<input [(ngModel)]="fullName" name="fullName" /></label>
+          <label class="vos-field">Mobile<input [(ngModel)]="mobile" name="mobile" /></label>
+          <label class="vos-field">Email<input [(ngModel)]="email" name="email" /></label>
+          <label class="vos-field"
+            >Address<textarea [(ngModel)]="address" name="address" rows="3"></textarea
+          ></label>
+          <label class="vos-field"
+            >Emergency contact<input [(ngModel)]="emergencyContact" name="emergencyContact"
+          /></label>
+          <button type="submit" class="vos-btn" [disabled]="saving()">
+            {{ saving() ? 'Saving…' : 'Save profile' }}
+          </button>
+        </form>
 
-      <div class="links">
-        <a routerLink="/pets">Your pets</a>
-        <a routerLink="/settings">Settings</a>
-        <a routerLink="/notifications">Notifications</a>
-        <a routerLink="/support">Support</a>
-        <a routerLink="/addresses" class="muted-link">Saved addresses</a>
-      </div>
+        <nav class="links" aria-label="Account">
+          <a routerLink="/pets" [queryParams]="{ from: 'profile' }">Your pets</a>
+          <a routerLink="/settings" [queryParams]="{ from: 'profile' }">Settings</a>
+          <a routerLink="/notifications" [queryParams]="{ from: 'profile' }">Notifications</a>
+          <a routerLink="/support" [queryParams]="{ from: 'profile' }">Support</a>
+          <a routerLink="/addresses" [queryParams]="{ from: 'profile' }">Saved addresses</a>
+        </nav>
 
-      <button type="button" class="vos-btn vos-btn-ghost" (click)="logout()">Log out</button>
-    }
+        <button type="button" class="vos-btn vos-btn-ghost logout" (click)="logout()">Log out</button>
+      }
+    </div>
   `,
   styles: [`
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+    }
     .profile-hero {
       display: flex;
       gap: 16px;
@@ -107,8 +113,8 @@ import { CustomerApiService } from '../../services/customer-api.service';
       color: var(--vos-brand);
       font-size: 0.92rem;
     }
-    .profile-form .vos-btn { margin-top: 12px; }
-    .links { margin: 18px 0 8px; display: grid; gap: 8px; }
+    .profile-form .vos-btn { margin-top: 12px; width: auto; }
+    .links { margin: 22px 0 12px; display: grid; gap: 8px; }
     .links a {
       display: block;
       padding: 12px 14px;
@@ -119,7 +125,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
       color: var(--vos-ink);
       font-weight: 600;
     }
-    .muted-link { display: none; }
+    .logout { margin-top: 4px; }
   `],
 })
 export class ProfileComponent implements OnInit {
@@ -191,6 +197,28 @@ export class ProfileComponent implements OnInit {
         address: this.address,
         emergencyContact: this.emergencyContact,
       });
+      // Keep Saved addresses in sync with the profile address
+      const addr = String(this.address || '').trim();
+      if (addr) {
+        try {
+          const list = (await this.api.addresses()) || [];
+          const exists = list.some(
+            (a: any) =>
+              String(a.address || '')
+                .trim()
+                .toLowerCase() === addr.toLowerCase(),
+          );
+          if (!exists) {
+            await this.api.createAddress({
+              label: 'Home',
+              address: addr,
+              isDefault: !list.some((a: any) => a.isDefault),
+            });
+          }
+        } catch {
+          /* address book optional */
+        }
+      }
       this.ok.set('Saved');
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Save failed');

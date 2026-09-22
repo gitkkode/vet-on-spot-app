@@ -8,9 +8,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
   imports: [RouterLink, FormsModule],
   selector: 'app-pet-passport',
   template: `
-    <a [routerLink]="['/pets', petId]" class="vos-back">
-      <span class="vos-back__chev" aria-hidden="true">‹</span> Pet profile
-    </a>
+    <a class="vos-back" [routerLink]="['/pets', petId, 'health']">← Health</a>
 
     @if (error()) {
       <div class="vos-err">
@@ -58,7 +56,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
           <div class="pass__meta">
             <div>
               <em>Sex</em>
-              <strong>{{ d.pet?.sex || d.pet?.gender || '—' }}</strong>
+              <strong>{{ sexLabel(d.pet) }}</strong>
             </div>
             <div>
               <em>Age</em>
@@ -66,7 +64,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
             </div>
             <div>
               <em>Color</em>
-              <strong>{{ d.pet?.color || '—' }}</strong>
+              <strong>{{ colorLabel(d.pet) }}</strong>
             </div>
           </div>
 
@@ -76,10 +74,6 @@ import { CustomerApiService } from '../../services/customer-api.service';
           </footer>
         </div>
       </section>
-
-      @if (d.note) {
-        <p class="pass-note">{{ d.note }}</p>
-      }
 
       <section class="panel panel--alert" aria-label="Emergency snapshot">
         <div class="panel__head">
@@ -165,7 +159,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
       <section class="panel">
         <div class="panel__head">
           <h2>Share passport</h2>
-          <span>Temporary access — token only, no clinical data in QR</span>
+          <span>Temporary read-only link for a clinician or caregiver</span>
         </div>
         <div class="share">
           <label class="field">
@@ -178,10 +172,15 @@ import { CustomerApiService } from '../../services/customer-api.service';
         </div>
         @if (share(); as sh) {
           <div class="share-box">
-            <em>Share token</em>
-            <code>{{ sh.token }}</code>
-            <p>Expires {{ (sh.expiresAt || '').slice(0, 16).replace('T', ' ') }}</p>
-            <button type="button" class="ghost" (click)="revoke(sh.id)">Revoke access</button>
+            <em>Share link</em>
+            <a class="share-url" [href]="shareUrl(sh)" target="_blank" rel="noopener">{{ shareUrl(sh) }}</a>
+            <p>Expires {{ prettyExpiry(sh.expiresAt) }}</p>
+            <div class="share-actions">
+              <button type="button" class="btn" (click)="copyShare(sh)">
+                {{ copied() ? 'Copied' : 'Copy link' }}
+              </button>
+              <button type="button" class="ghost" (click)="revoke(sh.id)">Revoke access</button>
+            </div>
           </div>
         }
       </section>
@@ -221,7 +220,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
     }
   `,
   styles: [`
-    :host { display: block; max-width: 720px; }
+    :host { display: block; }
 
     .linkish {
       margin-left: 8px; border: 0; background: none; color: #FD4A29;
@@ -484,13 +483,17 @@ import { CustomerApiService } from '../../services/customer-api.service';
       font-family: var(--vos-mono); font-size: 10px; letter-spacing: 0.1em;
       text-transform: uppercase; color: var(--vos-ink-muted); margin-bottom: 6px;
     }
-    .share-box code {
+    .share-url {
       display: block;
-      font-family: var(--vos-mono); font-size: 0.85rem;
-      word-break: break-all; color: var(--vos-ink);
+      font-family: var(--vos-mono); font-size: 0.88rem;
+      word-break: break-all; color: var(--vos-brand); font-weight: 600;
       background: #f7f3ea; padding: 10px 12px; border-radius: 10px;
+      text-decoration: none;
     }
     .share-box p { margin: 8px 0; color: var(--vos-ink-muted); font-size: 0.9rem; }
+    .share-actions {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    }
 
     .care-row {
       display: flex; justify-content: space-between; gap: 12px; align-items: center;
@@ -525,6 +528,7 @@ export class PetPassportComponent implements OnInit {
   readonly careErr = signal('');
   readonly inviting = signal(false);
   readonly sharing = signal(false);
+  readonly copied = signal(false);
 
   constructor(
     private api: CustomerApiService,
@@ -541,24 +545,71 @@ export class PetPassportComponent implements OnInit {
     return id ? `VOS-PP-${id}` : 'VOS-PP';
   }
 
+  sexLabel(pet: any): string {
+    const s = String(pet?.sex || pet?.gender || '').trim();
+    return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '—';
+  }
+
+  colorLabel(pet: any): string {
+    const c = String(pet?.color || pet?.colorMarks || pet?.color_marks || pet?.marks || '').trim();
+    return c || '—';
+  }
+
   ageLabel(pet: any): string {
     if (!pet) return '—';
     if (pet.ageYears != null || pet.ageMonths != null) {
       const y = Number(pet.ageYears || 0);
       const m = Number(pet.ageMonths || 0);
       if (y && m) return `${y}y ${m}m`;
-      if (y) return `${y} yr`;
+      if (y) return `${y} yr${y === 1 ? '' : 's'}`;
       if (m) return `${m} mo`;
     }
-    if (pet.age) return String(pet.age);
-    if (pet.dateOfBirth || pet.dob) {
-      const dob = new Date(pet.dateOfBirth || pet.dob);
+
+    const raw = String(
+      pet.ageOrDob || pet.age_or_dob || pet.age || pet.dateOfBirth || pet.dob || pet.birthDate || '',
+    ).trim();
+    if (!raw) return '—';
+
+    // Absolute date → compute age
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw) || /^\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}/.test(raw)) {
+      const iso = /^\d{4}-\d{2}-\d{2}/.test(raw)
+        ? raw.slice(0, 10)
+        : raw;
+      const dob = new Date(/^\d{4}-\d{2}-\d{2}/.test(raw) ? `${iso}T12:00:00` : raw);
       if (!Number.isNaN(dob.getTime())) {
-        const years = Math.max(0, Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 3600 * 1000)));
-        return years ? `${years} yr` : '<1 yr';
+        return this.formatAgeFromDob(dob);
       }
     }
-    return '—';
+
+    // Already human age text ("3 years", "2y")
+    if (/year|yr|month|mo|week|day|\dy\b|\dm\b/i.test(raw)) {
+      return raw;
+    }
+
+    // Numeric years only
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0 && n < 40) {
+      return `${n} yr${n === 1 ? '' : 's'}`;
+    }
+
+    return raw;
+  }
+
+  private formatAgeFromDob(dob: Date): string {
+    const now = new Date();
+    let years = now.getFullYear() - dob.getFullYear();
+    let months = now.getMonth() - dob.getMonth();
+    if (now.getDate() < dob.getDate()) months -= 1;
+    if (months < 0) {
+      years -= 1;
+      months += 12;
+    }
+    years = Math.max(0, years);
+    months = Math.max(0, months);
+    if (years === 0 && months === 0) return '<1 mo';
+    if (years === 0) return `${months} mo`;
+    if (months === 0) return `${years} yr${years === 1 ? '' : 's'}`;
+    return `${years}y ${months}m`;
   }
 
   prettyDate(v: string | null | undefined): string {
@@ -569,16 +620,75 @@ export class PetPassportComponent implements OnInit {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
+  prettyExpiry(v: string | null | undefined): string {
+    if (!v) return '—';
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return String(v).slice(0, 16).replace('T', ' ');
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  private appOrigin(): string {
+    try {
+      if (typeof window !== 'undefined' && window.location?.origin) {
+        const o = window.location.origin;
+        if (!/localhost|127\.0\.0\.1/.test(o)) return o;
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'https://app.vetonspot.com';
+  }
+
+  shareUrl(sh: any): string {
+    const direct = String(sh?.url || sh?.shareUrl || sh?.link || sh?.shareLink || '').trim();
+    if (/^https?:\/\//i.test(direct)) return direct;
+    const token = String(sh?.token || sh?.shareToken || sh?.code || sh?.id || '').trim();
+    if (!token) return this.appOrigin();
+    if (/^https?:\/\//i.test(token)) return token;
+    if (direct.startsWith('/')) return `${this.appOrigin()}${direct}`;
+    return `${this.appOrigin()}/share/passport/${encodeURIComponent(token)}`;
+  }
+
+  async copyShare(sh: any) {
+    const url = this.shareUrl(sh);
+    try {
+      await navigator.clipboard.writeText(url);
+      this.copied.set(true);
+      this.ok.set('Share link copied.');
+      setTimeout(() => this.copied.set(false), 2000);
+    } catch {
+      this.ok.set(url);
+    }
+  }
+
   async load() {
     this.loading.set(true);
     this.error.set('');
     try {
-      const [passport, carers] = await Promise.all([
+      const [passport, carers, pet] = await Promise.all([
         this.api.passportFull(this.petId),
         this.api.caregivers(this.petId).catch(() => []),
+        this.api.pet(this.petId).catch(() => null),
       ]);
-      this.data.set(passport);
-      this.caregivers.set(carers || []);
+      const merged = {
+        ...(passport || {}),
+        pet: { ...(passport?.pet || {}), ...(pet || {}) },
+      };
+      this.data.set(merged);
+      const list = Array.isArray(carers)
+        ? carers
+        : Array.isArray((carers as any)?.caregivers)
+          ? (carers as any).caregivers
+          : Array.isArray((carers as any)?.items)
+            ? (carers as any).items
+            : [];
+      this.caregivers.set(list);
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Couldn’t load passport');
     } finally {
@@ -590,12 +700,21 @@ export class PetPassportComponent implements OnInit {
     this.sharing.set(true);
     this.error.set('');
     this.ok.set('');
+    this.copied.set(false);
     try {
       const row = await this.api.createPassportShare(this.petId, {
         expiresInHours: this.shareHours || 72,
       });
       this.share.set(row);
-      this.ok.set('Share token created.');
+      const url = this.shareUrl(row);
+      this.ok.set('Share link ready — copy and send it.');
+      try {
+        await navigator.clipboard.writeText(url);
+        this.copied.set(true);
+        this.ok.set('Share link created and copied.');
+      } catch {
+        /* user can tap Copy */
+      }
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Share failed');
     } finally {
@@ -618,11 +737,49 @@ export class PetPassportComponent implements OnInit {
     this.inviting.set(true);
     this.careErr.set('');
     this.careOk.set('');
+    const email = String(this.inviteEmail || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      this.careErr.set('Enter a valid email address.');
+      this.inviting.set(false);
+      return;
+    }
     try {
-      await this.api.inviteCaregiver(this.petId, { email: this.inviteEmail, role: 'family' });
-      this.careOk.set('Invite recorded.');
+      const res = await this.api.inviteCaregiver(this.petId, {
+        email,
+        inviteeEmail: email,
+        role: 'family',
+        sendEmail: true,
+        notify: true,
+      });
+      const sent =
+        res?.emailSent === true ||
+        res?.inviteSent === true ||
+        res?.notified === true ||
+        /sent|email/i.test(String(res?.message || ''));
+      const inviteLink = String(res?.inviteUrl || res?.url || res?.link || '').trim();
+      if (sent) {
+        this.careOk.set(`Invitation email sent to ${email}.`);
+      } else if (inviteLink) {
+        this.careOk.set(`Invite created. Share this link: ${inviteLink}`);
+        try {
+          await navigator.clipboard.writeText(inviteLink);
+          this.careOk.set(`Invite created and link copied for ${email}.`);
+        } catch {
+          /* ignore */
+        }
+      } else {
+        this.careOk.set(
+          `Invite saved for ${email}. If they don’t get an email shortly, ask them to check spam or contact support.`,
+        );
+      }
       this.inviteEmail = '';
-      this.caregivers.set((await this.api.caregivers(this.petId)) || []);
+      const carers = await this.api.caregivers(this.petId);
+      const list = Array.isArray(carers)
+        ? carers
+        : Array.isArray((carers as any)?.caregivers)
+          ? (carers as any).caregivers
+          : [];
+      this.caregivers.set(list);
     } catch (e: any) {
       this.careErr.set(e?.error?.message || e?.message || 'Invite failed');
     } finally {
@@ -634,7 +791,13 @@ export class PetPassportComponent implements OnInit {
     this.careErr.set('');
     try {
       await this.api.revokeCaregiver(this.petId, id);
-      this.caregivers.set((await this.api.caregivers(this.petId)) || []);
+      const carers = await this.api.caregivers(this.petId);
+      const list = Array.isArray(carers)
+        ? carers
+        : Array.isArray((carers as any)?.caregivers)
+          ? (carers as any).caregivers
+          : [];
+      this.caregivers.set(list);
     } catch (e: any) {
       this.careErr.set(e?.message || 'Revoke failed');
     }

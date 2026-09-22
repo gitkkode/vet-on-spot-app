@@ -1,10 +1,13 @@
 import { Component, OnDestroy, OnInit, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 
+const CONSULT_FEE = '₹799';
+
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, FormsModule],
   selector: 'app-booking-detail',
   template: `
     <a routerLink="/bookings" class="vos-back"><span class="vos-back__chev" aria-hidden="true">‹</span> Appointments</a>
@@ -19,7 +22,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
         <p class="err-panel__body">{{ error() }}</p>
         <div class="err-panel__actions">
           <button type="button" class="err-panel__retry" (click)="load()">Try again</button>
-          <a routerLink="/" class="err-panel__home">Back home</a>
+          <a routerLink="/home" class="err-panel__home">Back home</a>
         </div>
       </div>
     } @else if (b(); as booking) {
@@ -77,7 +80,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
       <section class="facts" aria-label="Visit details">
         <button type="button" class="fact" style="--i: 0" (click)="nudgeFact(0)" [class.fact--tap]="tappedFact() === 0">
           <em>Where</em>
-          <strong>{{ booking.location || 'Address pending' }}</strong>
+          <strong>{{ titleCase(booking.location) || 'Address pending' }}</strong>
         </button>
         <button type="button" class="fact" style="--i: 1" (click)="nudgeFact(1)" [class.fact--tap]="tappedFact() === 1">
           <em>Doctor</em>
@@ -93,7 +96,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
             {{ prettyPay(booking.paymentStatus) }}
           </strong>
           @if (isUnpaid(booking.paymentStatus) && booking.paymentStatus !== 'failed') {
-            <span class="fact__hint">When the vet arrives home</span>
+            <span class="fact__hint">Base fee {{ consultFee }} · when the vet arrives</span>
           }
         </button>
       </section>
@@ -117,39 +120,51 @@ import { CustomerApiService } from '../../services/customer-api.service';
       <section class="manage" aria-label="Manage this visit">
         <h2>Take care of it</h2>
         <div class="manage__grid">
-          <a
-            class="act act--primary"
-            style="--i: 0"
-            [routerLink]="['/bookings', booking.id, 'track']"
-          >
-            <span class="act__live" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </span>
-            <span class="act__eyebrow">Live</span>
-            <span class="act__title">Track visit</span>
-            <span class="act__sub">Live status as the doctor heads over</span>
-            <span class="act__arrow" aria-hidden="true">→</span>
-          </a>
-          <a class="act" style="--i: 1" routerLink="/televet" [queryParams]="petQ(booking)">
+          @if (canLiveTrack()) {
+            <a
+              class="act act--primary"
+              style="--i: 0"
+              [routerLink]="['/bookings', booking.id, 'track']"
+            >
+              <span class="act__live" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </span>
+              <span class="act__eyebrow">Live</span>
+              <span class="act__title">Track visit</span>
+              <span class="act__sub">Live status as the doctor heads over</span>
+              <span class="act__arrow" aria-hidden="true">→</span>
+            </a>
+          } @else {
+            <div class="act act--muted" style="--i: 0" aria-disabled="true">
+              <span class="act__eyebrow">Soon</span>
+              <span class="act__title">Track visit</span>
+              <span class="act__sub">Available once your vet is on the way</span>
+            </div>
+          }
+          <button type="button" class="act" style="--i: 1" (click)="openEdit()">
+            <span class="act__title">Modify visit</span>
+            <span class="act__sub">Change time, address, or reason</span>
+          </button>
+          <a class="act" style="--i: 2" routerLink="/televet" [queryParams]="petQ(booking)">
             <span class="act__title">Talk to a vet</span>
             <span class="act__sub">Quick consult while you wait</span>
           </a>
-          <a class="act" style="--i: 2" routerLink="/intake" [queryParams]="petQ(booking)">
+          <a class="act" style="--i: 3" routerLink="/intake" [queryParams]="petQ(booking)">
             <span class="act__title">Something changed?</span>
             <span class="act__sub">Update how {{ booking.petName || 'they' }} is feeling</span>
           </a>
-          <a class="act" style="--i: 3" routerLink="/support" [queryParams]="{ bookingId: booking.id }">
+          <a class="act" style="--i: 4" routerLink="/support" [queryParams]="{ bookingId: booking.id }">
             <span class="act__title">Need help</span>
             <span class="act__sub">Reschedule, cancel, or ask us anything</span>
           </a>
           @if (visitId()) {
-            <a class="act" style="--i: 4" [routerLink]="['/visits', visitId()]">
+            <a class="act" style="--i: 5" [routerLink]="['/visits', visitId()]">
               <span class="act__title">Visit summary</span>
               <span class="act__sub">Notes from the appointment</span>
             </a>
           }
           @if (booking.petId) {
-            <a class="act" style="--i: 5" [routerLink]="['/pets', booking.petId, 'health']">
+            <a class="act" style="--i: 6" [routerLink]="['/pets', booking.petId, 'health']">
               <span class="act__title">Health story</span>
               <span class="act__sub">Meds, vaccines, and history</span>
             </a>
@@ -157,11 +172,44 @@ import { CustomerApiService } from '../../services/customer-api.service';
         </div>
       </section>
 
-      @if (match()?.recommended; as doc) {
+      @if (editOpen()) {
+        <div class="modal-backdrop" (click)="editOpen.set(false)"></div>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+          <h2 id="edit-title">Modify visit</h2>
+          <p>Update the details below. We’ll notify the care team.</p>
+          <label class="modal__field">
+            <span>Date</span>
+            <input type="date" [(ngModel)]="editDate" name="editDate" />
+          </label>
+          <label class="modal__field">
+            <span>Time</span>
+            <input type="text" [(ngModel)]="editTime" name="editTime" placeholder="e.g. 10:00 AM" />
+          </label>
+          <label class="modal__field">
+            <span>Address</span>
+            <textarea [(ngModel)]="editAddress" name="editAddress" rows="2"></textarea>
+          </label>
+          <label class="modal__field">
+            <span>Reason</span>
+            <input type="text" [(ngModel)]="editReason" name="editReason" />
+          </label>
+          @if (editError()) {
+            <p class="modal__err">{{ editError() }}</p>
+          }
+          <div class="modal__actions">
+            <button type="button" class="ghost" (click)="editOpen.set(false)">Cancel</button>
+            <button type="button" class="btn" [disabled]="editSaving()" (click)="saveEdit()">
+              {{ editSaving() ? 'Saving…' : 'Save changes' }}
+            </button>
+          </div>
+        </div>
+      }
+
+      @if (suggestedDoctor(); as doc) {
         <section class="match">
-          <p class="match__label">Looking good for</p>
+          <p class="match__label">{{ booking.assignedDoctor ? 'Assigned vet' : 'Suggested match' }}</p>
           <h3>{{ doc.name }}</h3>
-          <p class="match__meta">{{ (doc.reasons || []).slice(0, 3).join(' · ') || 'Nearby and available' }}</p>
+          <p class="match__meta">{{ matchMeta(doc) }}</p>
           @if (match()?.alternatives?.length) {
             <p class="match__alts">Also in range: {{ altNames(match().alternatives) }}</p>
           }
@@ -616,6 +664,20 @@ import { CustomerApiService } from '../../services/customer-api.service';
       border-color: rgba(253, 74, 41, 0.22);
     }
     .act:active { transform: scale(0.985) translateY(-1px); }
+    button.act {
+      width: 100%; text-align: left; cursor: pointer; font: inherit;
+    }
+    .act--muted {
+      grid-column: 1 / -1;
+      opacity: 0.72;
+      cursor: not-allowed;
+      background: #f3f0ea;
+      color: var(--vos-ink-muted);
+      box-shadow: none;
+      animation: none;
+      opacity: 1;
+    }
+    .act--muted:hover { transform: none; box-shadow: none; border-color: var(--vos-border, #e8e0d4); }
     .act--primary {
       background: linear-gradient(135deg, #1a100e 0%, #0a0a0a 100%);
       color: #fff;
@@ -949,6 +1011,66 @@ import { CustomerApiService } from '../../services/customer-api.service';
       .fact, .act, .steps__item { opacity: 1; }
       .act:hover, .fact:hover { transform: none; }
     }
+
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 80;
+      background: rgba(10, 10, 10, 0.45);
+      backdrop-filter: blur(4px);
+    }
+    .modal {
+      position: fixed; z-index: 81;
+      left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(440px, calc(100vw - 32px));
+      max-height: calc(100vh - 48px);
+      overflow: auto;
+      padding: 24px 22px;
+      border-radius: 20px;
+      background: #fff;
+      border: 1px solid var(--vos-border, #e8e0d4);
+      box-shadow: 0 24px 60px rgba(10, 10, 10, 0.22);
+    }
+    .modal h2 {
+      margin: 0 0 8px;
+      font-family: var(--vos-display);
+      font-size: 1.35rem;
+      letter-spacing: -0.03em;
+    }
+    .modal > p {
+      margin: 0 0 16px;
+      color: var(--vos-ink-muted);
+      line-height: 1.45;
+    }
+    .modal__field {
+      display: grid; gap: 6px; margin-bottom: 12px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--vos-ink-muted);
+      font-family: var(--vos-mono);
+    }
+    .modal__field input,
+    .modal__field textarea {
+      width: 100%; box-sizing: border-box;
+      padding: 12px 14px; border-radius: 12px;
+      border: 1px solid var(--vos-border, #e8e0d4);
+      font: inherit; font-size: 1rem; font-weight: 600;
+      text-transform: none; letter-spacing: 0;
+      color: var(--vos-ink); background: #faf8f4;
+    }
+    .modal__err { color: #b42318; font-weight: 600; margin: 0 0 10px; }
+    .modal__actions {
+      display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 8px;
+    }
+    .modal__actions .btn, .modal__actions .ghost {
+      min-height: 44px; padding: 10px 18px; border-radius: 999px;
+      font-weight: 700; font: inherit; cursor: pointer; border: 0;
+    }
+    .modal__actions .btn {
+      background: linear-gradient(135deg, #FD4A29, #E03E20); color: #fff;
+    }
+    .modal__actions .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .modal__actions .ghost {
+      background: #fff; border: 1px solid var(--vos-border, #e8e0d4); color: var(--vos-ink);
+    }
   `],
 })
 export class BookingDetailComponent implements OnInit, OnDestroy {
@@ -966,6 +1088,14 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
   readonly countdownSoon = signal(false);
   readonly tappedFact = signal<number | null>(null);
   readonly focusedStep = signal<number | null>(null);
+  readonly editOpen = signal(false);
+  readonly editSaving = signal(false);
+  readonly editError = signal('');
+  consultFee = CONSULT_FEE;
+  editDate = '';
+  editTime = '';
+  editAddress = '';
+  editReason = '';
 
   private id = '';
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -983,7 +1113,11 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
   ngOnInit() {
     this.id = this.route.snapshot.paramMap.get('id') || '';
     this.justBooked.set(this.route.snapshot.queryParamMap.get('booked') === '1');
-    void this.load();
+    void this.load().then(() => {
+      if (this.route.snapshot.queryParamMap.get('edit') === '1') {
+        this.openEdit();
+      }
+    });
     this.refreshTimer = setInterval(() => {
       void this.load(true);
     }, 20_000);
@@ -1090,6 +1224,8 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
 
   doctorLabel(booking: any): string {
     if (booking?.assignedDoctor) return booking.assignedDoctor;
+    const rec = this.match()?.recommended;
+    if (rec?.name) return `${rec.name} (suggested)`;
     const st = String(booking?.status || '').toLowerCase();
     if (st === 'accepted' || st === 'en_route' || st === 'arrived' || st === 'in_consult') {
       return 'Assigned — name coming soon';
@@ -1098,12 +1234,91 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
     return 'Finding the right match';
   }
 
+  suggestedDoctor(): any | null {
+    const booking = this.b();
+    if (booking?.assignedDoctor) {
+      return { name: booking.assignedDoctor, reasons: ['Assigned to your visit'] };
+    }
+    return this.match()?.recommended || null;
+  }
+
+  matchMeta(doc: any): string {
+    const reasons = (doc?.reasons || []).filter((r: string) => {
+      const s = String(r || '').trim();
+      if (!s) return false;
+      if (/^0(\.0+)?\s*km$/i.test(s)) return false;
+      if (/distance:\s*0(\.0+)?/i.test(s)) return false;
+      return true;
+    });
+    return reasons.slice(0, 3).join(' · ') || 'Nearby and available';
+  }
+
+  canLiveTrack(): boolean {
+    const booking = this.b();
+    const st = String(booking?.status || '').toLowerCase();
+    if (['en_route', 'on_the_way', 'arrived', 'in_consult'].includes(st)) return true;
+    const steps = this.journey()?.steps;
+    if (!Array.isArray(steps)) return false;
+    return steps.some((s: any) => {
+      if (s?.state !== 'current') return false;
+      const label = `${s.label || ''} ${s.code || ''} ${s.key || ''}`.toLowerCase();
+      return /on the way|en.?route|arrived|heading|dispatched|live/.test(label);
+    });
+  }
+
+  titleCase(v: string | null | undefined): string {
+    if (!v) return '';
+    return String(v)
+      .trim()
+      .split(/\s+/)
+      .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ''))
+      .join(' ');
+  }
+
+  openEdit() {
+    const booking = this.b();
+    this.editDate = (booking?.scheduledDate || '').toString().slice(0, 10);
+    this.editTime = booking?.scheduledTime || '';
+    this.editAddress = booking?.location || '';
+    this.editReason = booking?.reason || '';
+    this.editError.set('');
+    this.editOpen.set(true);
+  }
+
+  async saveEdit() {
+    if (!this.id) return;
+    this.editSaving.set(true);
+    this.editError.set('');
+    try {
+      await this.api.updateBooking(this.id, {
+        preferredDate: this.editDate,
+        preferredTime: this.editTime,
+        address: this.editAddress,
+        reasonForVisit: this.editReason,
+        scheduledDate: this.editDate,
+        scheduledTime: this.editTime,
+        location: this.editAddress,
+        reason: this.editReason,
+      });
+      this.editOpen.set(false);
+      await this.load(true);
+    } catch (e: any) {
+      this.editError.set(
+        e?.error?.message ||
+          e?.message ||
+          'Couldn’t update this visit. Try Support if changes don’t save.',
+      );
+    } finally {
+      this.editSaving.set(false);
+    }
+  }
+
   prettyPay(p: string | null | undefined): string {
     const v = String(p || 'unpaid').toLowerCase();
     if (v === 'paid' || v === 'success') return 'Paid';
     if (v === 'failed') return 'Payment failed';
-    if (v === 'pending') return 'Pay later';
-    return 'Pay later';
+    if (v === 'pending') return `Pay later · ${CONSULT_FEE}`;
+    return `Pay later · ${CONSULT_FEE}`;
   }
 
   isUnpaid(p: string | null | undefined): boolean {

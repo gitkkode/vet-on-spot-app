@@ -1,15 +1,16 @@
 import { Component, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 
 @Component({
   selector: 'app-signup',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   template: `
     <div class="gate">
       <section class="gate-form">
+        <a routerLink="/" class="back-land">← VetonSpot</a>
         <div class="gate-form__card">
           <p class="gate-form__eyebrow">Almost there</p>
           <h2>Create your care profile</h2>
@@ -57,20 +58,33 @@ import { AuthService } from '../../services/auth.service';
       justify-content: center;
       padding: 32px 20px;
       background:
-        radial-gradient(ellipse 60% 40% at 80% 10%, rgba(253, 74, 41, 0.1) 0%, transparent 55%),
-        #faf8f4;
-      font-family: "Anek Latin", system-ui, sans-serif;
+        radial-gradient(ellipse 60% 40% at 80% 10%, rgba(253, 74, 41, 0.12) 0%, transparent 55%),
+        radial-gradient(ellipse 40% 30% at 10% 90%, rgba(253, 74, 41, 0.06) 0%, transparent 50%),
+        #FCFCFB;
+      font-family: var(--vos-font);
     }
+    .gate-form { width: min(440px, 100%); }
+    .back-land {
+      display: inline-block;
+      margin-bottom: 14px;
+      font-weight: 700;
+      color: var(--vos-ink-muted);
+      text-decoration: none;
+      font-size: 0.92rem;
+    }
+    .back-land:hover { color: var(--vos-brand); }
     .gate-form__card {
-      width: min(440px, 100%);
+      width: 100%;
       background: #fff;
       border-radius: 24px;
       padding: 36px 32px 28px;
+      border: 1px solid var(--vos-border);
       box-shadow: 0 18px 48px rgba(20, 16, 12, 0.08);
+      animation: vos-rise 0.45s var(--vos-ease) both;
     }
     .gate-form__eyebrow {
       margin: 0 0 8px;
-      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-family: var(--vos-mono);
       font-size: 10px;
       letter-spacing: 0.16em;
       text-transform: uppercase;
@@ -79,16 +93,14 @@ import { AuthService } from '../../services/auth.service';
     }
     h2 {
       margin: 0 0 8px;
-      font-family: "Gabarito", system-ui, sans-serif;
-      font-size: 1.75rem;
-      letter-spacing: -0.035em;
-      color: #0a0a0a;
+      font-family: var(--vos-display);
+      font-size: 1.7rem;
+      letter-spacing: -0.04em;
     }
     .gate-form__sub {
       margin: 0 0 22px;
-      color: #5c5a55;
+      color: var(--vos-ink-muted);
       line-height: 1.45;
-      font-size: 1.02rem;
     }
     .field {
       display: block;
@@ -97,20 +109,22 @@ import { AuthService } from '../../services/auth.service';
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: #5c5a55;
+      color: var(--vos-ink-muted);
     }
     .opt { text-transform: none; font-weight: 600; letter-spacing: 0; color: #9a968e; }
     .field input {
       width: 100%;
       margin-top: 7px;
+      min-height: 48px;
       padding: 12px 14px;
-      border-radius: 12px;
+      border-radius: 14px;
       border: 1px solid transparent;
       background: #eef2f7;
-      font-size: 1.05rem;
-      color: #0a0a0a;
+      font-size: 1rem;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
       box-sizing: border-box;
-      min-height: 50px;
       font-family: inherit;
     }
     .field input:focus {
@@ -121,8 +135,8 @@ import { AuthService } from '../../services/auth.service';
     }
     .submit {
       width: 100%;
-      margin-top: 8px;
       min-height: 52px;
+      margin-top: 8px;
       border: 0;
       border-radius: 999px;
       background: linear-gradient(135deg, #FD4A29, #E03E20);
@@ -130,13 +144,18 @@ import { AuthService } from '../../services/auth.service';
       font-weight: 700;
       font-size: 1.05rem;
       cursor: pointer;
-      box-shadow: 0 10px 28px rgba(253, 74, 41, 0.35);
       font-family: inherit;
+      box-shadow: 0 12px 28px rgba(253, 74, 41, 0.3);
     }
-    .submit:disabled { opacity: 0.65; cursor: not-allowed; }
+    .submit:disabled { opacity: 0.55; cursor: not-allowed; }
     .error-msg {
-      padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; margin-bottom: 12px;
-      background: #fef2f2; color: #b42318;
+      background: #fdecec;
+      color: #B42318;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
     }
   `],
 })
@@ -158,7 +177,7 @@ export class SignupComponent {
       const name = this.fullName.trim();
       if (!name) throw new Error('Enter your name');
       await this.auth.completeCustomerSignup(name, this.address.trim() || undefined);
-      await this.router.navigateByUrl('/');
+      await this.router.navigateByUrl('/home');
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Could not save profile');
     } finally {

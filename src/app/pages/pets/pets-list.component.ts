@@ -8,9 +8,9 @@ import { ActivePetService } from '../../services/active-pet.service';
   imports: [RouterLink],
   selector: 'app-pets-list',
   template: `
-    <header class="head">
+    <header class="head vos-page-head">
       <div>
-        <p class="kicker">Your household</p>
+        <p class="kicker vos-eyebrow">Your household</p>
         <h1>My pets</h1>
         <p class="sub">Tap a pet to open their care home — health, visits, and passport.</p>
       </div>
@@ -29,21 +29,25 @@ import { ActivePetService } from '../../services/active-pet.service';
       <div class="empty">
         <h2>Meet your first pet here</h2>
         <p>Add a profile so visits, meds, and reminders stay attached to the right face.</p>
-        <a class="cta" routerLink="/pets/new">Add your first pet</a>
+        <a class="cta vos-btn" routerLink="/pets/new">Add your first pet</a>
       </div>
     } @else {
       <div class="grid">
         @for (p of pets(); track p.id) {
           <article class="card" [class.card--active]="activePet.get() === p.id">
             <a class="card__main" [routerLink]="['/pets', p.id]" (click)="activate(p.id)">
-              <div class="portrait">
-                @if (p.photoUrl) {
-                  <img [src]="p.photoUrl" [alt]="p.name || 'Pet'" />
+              <div class="portrait" aria-hidden="true">
+                @if (showPhoto(p)) {
+                  <img
+                    [src]="p.photoUrl"
+                    alt=""
+                    (error)="onPhotoError(p.id)"
+                  />
                 } @else {
-                  <span>{{ (p.name || '?').charAt(0) }}</span>
+                  <span class="portrait__initial">{{ petInitial(p.name) }}</span>
                 }
               </div>
-              <h2>{{ p.name || 'Pet' }}</h2>
+              <h2>{{ displayName(p.name) }}</h2>
               <p class="meta">{{ line(p) }}</p>
               @if (activePet.get() === p.id) {
                 <span class="on-home">Active on Home</span>
@@ -52,15 +56,22 @@ import { ActivePetService } from '../../services/active-pet.service';
             <div class="card__acts">
               <a routerLink="/book/new" [queryParams]="{ petId: p.id }" (click)="activate(p.id)">Book</a>
               <a [routerLink]="['/pets', p.id, 'health']" (click)="activate(p.id)">Health</a>
-              <a [routerLink]="['/pets', p.id]" (click)="activate(p.id)">Open</a>
             </div>
           </article>
         }
 
         <a class="card card--add" routerLink="/pets/new">
-          <span class="plus" aria-hidden="true">+</span>
-          <strong>Add another pet</strong>
-          <em>Build a living profile for every family member</em>
+          <div class="card__main card__main--add">
+            <div class="portrait portrait--add" aria-hidden="true">
+              <span class="plus">+</span>
+            </div>
+            <h2>Add another pet</h2>
+            <p class="meta">Build a living profile for every family member</p>
+          </div>
+          <div class="card__acts card__acts--ghost" aria-hidden="true">
+            <span></span>
+            <span></span>
+          </div>
         </a>
       </div>
     }
@@ -117,6 +128,7 @@ import { ActivePetService } from '../../services/active-pet.service';
       overflow: hidden;
       box-shadow: 0 12px 32px rgba(20, 16, 12, 0.05);
       transition: transform 0.15s ease, box-shadow 0.15s ease;
+      min-height: 280px;
     }
     .card:hover {
       transform: translateY(-3px);
@@ -127,26 +139,53 @@ import { ActivePetService } from '../../services/active-pet.service';
       box-shadow: 0 14px 36px rgba(253, 74, 41, 0.14);
     }
     .card__main {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
       text-decoration: none;
       color: inherit;
-      padding: 22px 20px 12px;
+      padding: 22px 20px 16px;
       text-align: center;
+      flex: 1;
     }
+    .card__main--add { pointer-events: none; }
     .portrait {
+      position: relative;
       width: 96px; height: 96px;
       margin: 0 auto 14px;
       border-radius: 50%;
       overflow: hidden;
       background: linear-gradient(145deg, #ffe8e1, #fff5f1);
       display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 10px 24px rgba(253, 74, 41, 0.15);
+    }
+    .portrait img {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+      border: 0;
+    }
+    .portrait__initial {
       font-family: var(--vos-display);
       font-size: 2.2rem;
       font-weight: 700;
       color: var(--vos-brand);
-      box-shadow: 0 10px 24px rgba(253, 74, 41, 0.15);
+      line-height: 1;
+      user-select: none;
     }
-    .portrait img { width: 100%; height: 100%; object-fit: cover; }
+    .portrait--add {
+      background: #0a0a0a;
+      box-shadow: 0 10px 24px rgba(10, 10, 10, 0.18);
+    }
+    .plus {
+      color: #fff;
+      font-size: 2rem;
+      font-weight: 500;
+      line-height: 1;
+      margin-top: -2px;
+    }
     .card__main h2 {
       margin: 0 0 6px;
       font-family: var(--vos-display);
@@ -158,6 +197,7 @@ import { ActivePetService } from '../../services/active-pet.service';
       color: var(--vos-ink-muted);
       font-size: 0.95rem;
       line-height: 1.35;
+      min-height: 1.35em;
     }
     .on-home {
       display: inline-block;
@@ -171,9 +211,10 @@ import { ActivePetService } from '../../services/active-pet.service';
     }
     .card__acts {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: 1fr 1fr;
       border-top: 1px solid var(--vos-border);
       margin-top: auto;
+      min-height: 46px;
     }
     .card__acts a {
       padding: 12px 8px;
@@ -186,36 +227,16 @@ import { ActivePetService } from '../../services/active-pet.service';
     }
     .card__acts a:last-child { border-right: 0; color: var(--vos-brand); }
     .card__acts a:hover { background: #faf8f4; }
+    .card__acts--ghost {
+      border-top: 1px solid transparent;
+      visibility: hidden;
+    }
 
     .card--add {
       text-decoration: none;
       color: inherit;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      padding: 36px 22px;
-      min-height: 280px;
       border-style: dashed;
       background: linear-gradient(180deg, #fff 0%, #faf8f4 100%);
-    }
-    .plus {
-      width: 56px; height: 56px; border-radius: 50%;
-      display: inline-flex; align-items: center; justify-content: center;
-      background: #0a0a0a; color: #fff;
-      font-size: 1.8rem; font-weight: 700; margin-bottom: 14px;
-    }
-    .card--add strong {
-      display: block;
-      font-family: var(--vos-display);
-      font-size: 1.25rem;
-      letter-spacing: -0.02em;
-      margin-bottom: 6px;
-    }
-    .card--add em {
-      font-style: normal;
-      color: var(--vos-ink-muted);
-      font-size: 0.95rem;
-      max-width: 22ch;
     }
 
     .empty {
@@ -259,6 +280,7 @@ export class PetsListComponent implements OnInit {
   readonly pets = signal<any[]>([]);
   readonly loading = signal(true);
   readonly error = signal('');
+  readonly brokenPhotos = signal<Set<string>>(new Set());
 
   constructor(
     private api: CustomerApiService,
@@ -269,8 +291,53 @@ export class PetsListComponent implements OnInit {
     void this.load();
   }
 
+  showPhoto(p: { id?: string; photoUrl?: string | null }): boolean {
+    const url = String(p?.photoUrl || '').trim();
+    if (!url || !p?.id) return false;
+    if (this.brokenPhotos().has(p.id)) return false;
+    return true;
+  }
+
+  onPhotoError(id: string) {
+    if (!id) return;
+    this.brokenPhotos.update((set) => {
+      const next = new Set(set);
+      next.add(id);
+      return next;
+    });
+  }
+
+  petInitial(name: string | null | undefined): string {
+    const n = String(name || '?').trim();
+    return (n.charAt(0) || '?').toUpperCase();
+  }
+
+  displayName(name: string | null | undefined): string {
+    return this.titleCase(name) || 'Pet';
+  }
+
+  private titleCase(v: string | null | undefined): string {
+    const raw = String(v || '').trim();
+    if (!raw) return '';
+    return raw
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+  }
+
   line(p: any): string {
-    return [p.species, p.breed, p.gender || p.sex].filter(Boolean).join(' · ') || 'Pet profile';
+    const species = this.prettySpecies(p.species);
+    const breed = this.titleCase(p.breed);
+    const gender = this.titleCase(p.gender || p.sex);
+    return [species, breed, gender].filter(Boolean).join(' · ') || 'Pet profile';
+  }
+
+  /** Hide raw "Other" category; prefer breed as the natural label when needed. */
+  private prettySpecies(species: string | null | undefined): string {
+    const s = String(species || '').trim();
+    if (!s) return '';
+    if (/^other$/i.test(s)) return '';
+    return this.titleCase(s);
   }
 
   activate(id: string) {
@@ -283,6 +350,7 @@ export class PetsListComponent implements OnInit {
     try {
       const pets = (await this.api.pets()) || [];
       this.pets.set(pets);
+      this.brokenPhotos.set(new Set());
       this.activePet.syncFromPets(pets);
     } catch (e: any) {
       this.error.set(e?.message || 'Failed');

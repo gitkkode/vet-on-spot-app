@@ -58,7 +58,7 @@ export const guestGuard: CanActivateFn = () => {
     }
 
     if (auth.hasCustomerProfile()) {
-      void router.navigateByUrl('/');
+      void router.navigateByUrl('/home');
       return;
     }
     if (auth.canAccessSignup()) {
@@ -71,7 +71,7 @@ export const guestGuard: CanActivateFn = () => {
 
   if (auth.authReady()) {
     if (!auth.isLoggedIn()) return true;
-    if (auth.hasCustomerProfile()) return router.createUrlTree(['/']);
+    if (auth.hasCustomerProfile()) return router.createUrlTree(['/home']);
     if (auth.canAccessSignup()) return router.createUrlTree(['/signup']);
   }
 
@@ -104,7 +104,7 @@ export const signupGuard: CanActivateFn = async () => {
 
   if (auth.hasCustomerProfile()) {
     auth.clearOtpSignupGate();
-    return router.createUrlTree(['/']);
+    return router.createUrlTree(['/home']);
   }
 
   if (!auth.canAccessSignup()) {
