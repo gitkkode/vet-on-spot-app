@@ -18,6 +18,16 @@ export const routes: Routes = [
     canActivate: [signupGuard],
   },
   {
+    path: 'privacy',
+    loadComponent: () => import('./pages/legal/legal.component').then((m) => m.LegalComponent),
+    data: { doc: 'privacy' },
+  },
+  {
+    path: 'terms',
+    loadComponent: () => import('./pages/legal/legal.component').then((m) => m.LegalComponent),
+    data: { doc: 'terms' },
+  },
+  {
     path: '',
     loadComponent: () => import('./layout/shell.component').then((m) => m.ShellComponent),
     canActivate: [authGuard, customerProfileGuard],

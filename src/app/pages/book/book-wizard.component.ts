@@ -4,6 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { AuthService } from '../../services/auth.service';
+import { BookingGateService } from '../../services/booking-gate.service';
 const REASONS = [
   'sick',
   'vomiting / diarrhea',
@@ -156,7 +157,7 @@ const INDIAN_STATES = [
       <p class="head__sub">{{ meta().sub }}</p>
 
       <nav class="stepper" aria-label="Booking progress">
-        @for (node of stepNodes; track node.n; let i = $index) {
+        @for (node of stepNodes; track node.n) {
           <div
             class="stepper__node"
             [class.stepper__node--done]="step() > node.n"
@@ -167,13 +168,6 @@ const INDIAN_STATES = [
             </span>
             <span class="stepper__label">{{ node.label }}</span>
           </div>
-          @if (i < stepNodes.length - 1) {
-            <span
-              class="stepper__rail"
-              [class.stepper__rail--on]="step() > node.n"
-              aria-hidden="true"
-            ></span>
-          }
         }
       </nav>
       <div
@@ -241,13 +235,16 @@ const INDIAN_STATES = [
                   type="button"
                   class="chip"
                   [class.on]="isPetOn(p.id)"
+                  [class.chip--blocked]="petHasActiveVisit(p.id)"
                   [attr.aria-pressed]="isPetOn(p.id)"
+                  [disabled]="petHasActiveVisit(p.id)"
+                  [attr.title]="petHasActiveVisit(p.id) ? (p.name + ' already has an upcoming or ongoing visit') : null"
                   (click)="togglePet(p.id)"
                 >
-                  <span class="chip__mono">{{ (p.name || '?').charAt(0) }}</span>
-                  <span>
+                  <span class="chip__mono" aria-hidden="true">{{ (p.name || '?').charAt(0) }}</span>
+                  <span class="chip__copy">
                     <strong>{{ p.name }}</strong>
-                    <em>{{ p.species || 'Pet' }}</em>
+                    <em>{{ petHasActiveVisit(p.id) ? 'Visit already booked' : (p.species || 'Pet') }}</em>
                   </span>
                 </button>
               }
@@ -255,12 +252,20 @@ const INDIAN_STATES = [
             @if (conflictBooking(); as conflict) {
               <div class="conflict" role="status">
                 <p>
-                  <strong>{{ conflict.petName || 'This pet' }}</strong> already has an active visit
+                  <strong>{{ conflict.petName || 'This pet' }}</strong> already has an upcoming or ongoing visit
                   ({{ conflict.scheduledDate || 'upcoming' }}{{ conflict.scheduledTime ? ' · ' + conflict.scheduledTime : '' }}).
+                  Finish or reschedule that visit before booking another for this pet.
                 </p>
                 <div class="conflict__actions">
                   <a class="btn" [routerLink]="['/bookings', conflict.id]">Open existing visit</a>
-                  <button type="button" class="ghost" (click)="allowOverlap.set(true)">Book anyway</button>
+                </div>
+              </div>
+            }
+            @if (!bookablePets().length && pets().length) {
+              <div class="conflict" role="status">
+                <p>Every pet already has a visit booked. Open an existing visit, or cancel one to book again.</p>
+                <div class="conflict__actions">
+                  <a class="btn" routerLink="/bookings">View appointments</a>
                 </div>
               </div>
             }
@@ -269,7 +274,7 @@ const INDIAN_STATES = [
             <button
               type="button"
               class="btn"
-              [disabled]="!petIds.length || sessionExpired() || (!!conflictBooking() && !allowOverlap())"
+              [disabled]="!petIds.length || sessionExpired() || !!conflictBooking()"
               (click)="go(2)"
             >Continue</button>
           </div>
@@ -646,8 +651,8 @@ const INDIAN_STATES = [
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
-      gap: 0;
-      margin: 0 0 14px;
+      gap: 4px;
+      margin: 0 0 16px;
       overflow-x: auto;
       padding-bottom: 2px;
     }
@@ -657,7 +662,7 @@ const INDIAN_STATES = [
       align-items: center;
       gap: 6px;
       min-width: 44px;
-      flex: 0 0 auto;
+      flex: 1 1 0;
     }
     .stepper__dot {
       width: 28px; height: 28px; border-radius: 50%;
@@ -665,6 +670,8 @@ const INDIAN_STATES = [
       font-size: 11px; font-weight: 800;
       background: #f0ece4; color: var(--vos-ink-muted);
       border: 1.5px solid transparent;
+      line-height: 1;
+      box-sizing: border-box;
     }
     .stepper__node--current .stepper__dot {
       background: var(--vos-brand); color: #fff;
@@ -686,16 +693,8 @@ const INDIAN_STATES = [
     .stepper__node--done .stepper__label {
       color: var(--vos-ink);
     }
-    .stepper__rail {
-      flex: 1 1 12px;
-      height: 2px;
-      margin-top: 13px;
-      background: rgba(20, 16, 12, 0.1);
-      min-width: 8px;
-    }
-    .stepper__rail--on { background: #0a0a0a; }
     .progress {
-      height: 6px;
+      height: 12px;
       border-radius: 999px;
       background: rgba(20, 16, 12, 0.08);
       overflow: hidden;
@@ -704,10 +703,11 @@ const INDIAN_STATES = [
       display: block; height: 100%;
       background: linear-gradient(90deg, #FD4A29, #E03E20);
       border-radius: inherit;
-      transition: width 0.3s ease;
+      transition: width 0.35s ease;
+      min-width: 0;
     }
     .progress__label {
-      margin: 8px 0 0;
+      margin: 10px 0 0;
       font-family: var(--vos-mono);
       font-size: 11px;
       color: var(--vos-ink-muted);
@@ -781,37 +781,78 @@ const INDIAN_STATES = [
 
     .chips { display: grid; gap: 10px; }
     .chip {
-      display: flex; align-items: center; gap: 12px;
-      width: 100%; text-align: left;
-      padding: 14px 16px; border-radius: 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      width: 100%;
+      text-align: left;
+      padding: 14px 16px;
+      border-radius: 16px;
       border: 1px solid var(--vos-border);
-      background: #faf8f4; cursor: pointer;
-      font-family: inherit; color: inherit;
+      background: #faf8f4;
+      cursor: pointer;
+      font-family: inherit;
+      color: inherit;
       transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+      box-sizing: border-box;
     }
-    .chip--block { align-items: flex-start; }
-    .chip span, .chip strong { display: block; }
-    .chip em {
-      display: block; font-style: normal; margin-top: 2px;
-      color: var(--vos-ink-muted); font-size: 0.9rem;
+    .chip__copy {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 2px;
+      min-width: 0;
+      flex: 1 1 auto;
     }
-    .chip strong {
+    .chip__copy em {
+      display: block;
+      font-style: normal;
+      color: var(--vos-ink-muted);
+      font-size: 0.9rem;
+      line-height: 1.3;
+    }
+    .chip__copy strong {
+      display: block;
       font-family: var(--vos-display);
       font-size: 1.08rem;
       letter-spacing: -0.02em;
+      line-height: 1.2;
+      font-weight: 700;
     }
     .chip.on {
       border-color: var(--vos-brand);
       background: var(--vos-brand-soft);
       box-shadow: 0 0 0 3px rgba(253, 74, 41, 0.12);
     }
+    .chip--blocked,
+    .chip--blocked:hover {
+      opacity: 0.55;
+      cursor: not-allowed;
+      background: #f0eee8;
+      border-color: var(--vos-border);
+      box-shadow: none;
+    }
+    .chip--blocked.chip.on {
+      border-color: var(--vos-border);
+      background: #f0eee8;
+      box-shadow: none;
+    }
     .chip__mono {
-      width: 40px; height: 40px; border-radius: 50%;
-      display: inline-flex; align-items: center; justify-content: center;
-      background: #fff; color: var(--vos-brand);
-      font-family: var(--vos-display); font-weight: 700; font-size: 1.1rem;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--vos-brand-soft, #ffe4dc);
+      color: var(--vos-brand, #FD4A29);
+      font-family: var(--vos-display);
+      font-weight: 700;
+      font-size: 1.15rem;
+      line-height: 1;
       flex-shrink: 0;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+      text-transform: uppercase;
+      box-sizing: border-box;
     }
 
     .pills {
@@ -1298,7 +1339,6 @@ export class BookWizardComponent implements OnInit {
   readonly booting = signal(true);
   readonly sessionExpired = signal(false);
   readonly exitOpen = signal(false);
-  readonly allowOverlap = signal(false);
   petIds: string[] = [];
   reasonsSelected: string[] = [];
   intakeAnswerMap: Record<string, string> = {};
@@ -1328,6 +1368,7 @@ export class BookWizardComponent implements OnInit {
     private route: ActivatedRoute,
     private activePet: ActivePetService,
     private auth: AuthService,
+    private bookingGate: BookingGateService,
   ) {}
 
   @HostListener('document:click')
@@ -1437,21 +1478,42 @@ export class BookWizardComponent implements OnInit {
       const addrs = this.normalizeAddresses(addrsRaw);
       this.addresses.set(addrs);
       this.activeBookings.set(this.normalizeBookings(bookingsRaw).filter((b) => this.isActiveBooking(b)));
+      this.bookingGate.syncFromBookings(bookingsRaw, pets || []);
       const def = addrs.find((a: any) => a.isDefault) || addrs[0];
       if (def) {
         this.applySavedAddress(def);
       } else if (me?.address) {
         this.addrStreet = String(me.address);
       }
+
+      const bookable = (pets || []).filter((p: any) => !this.petHasActiveVisit(p.id));
       const q = this.route.snapshot.queryParamMap.get('petId') || this.activePet.get();
-      if (q && (pets || []).some((p: any) => p.id === q)) {
+
+      // Never pre-select a pet that already has a visit
+      if (q && bookable.some((p: any) => p.id === q)) {
         this.petIds = [q];
         this.activePet.set(q);
         this.step.set(2);
-      } else if ((pets || []).length === 1) {
-        this.petIds = [pets[0].id];
-        this.activePet.set(pets[0].id);
+      } else if (bookable.length === 1) {
+        this.petIds = [bookable[0].id];
+        this.activePet.set(bookable[0].id);
         this.step.set(2);
+      } else if (q && this.petHasActiveVisit(q)) {
+        this.petIds = [];
+        this.activePet.set(q);
+        this.step.set(1);
+        const pet = (pets || []).find((p: any) => p.id === q);
+        this.error.set(
+          `${pet?.name || 'This pet'} already has an upcoming or ongoing visit. Pick a different pet, or open the existing visit.`,
+        );
+      } else {
+        this.petIds = [];
+      }
+
+      if (!bookable.length && (pets || []).length) {
+        this.error.set(
+          'Every pet already has an upcoming or ongoing visit. Finish or cancel one before booking another.',
+        );
       }
     } catch (e: any) {
       const status = e?.status as number | undefined;
@@ -1501,22 +1563,48 @@ export class BookWizardComponent implements OnInit {
     return this.petIds.includes(id);
   }
 
+  /** Pets that can still be booked (no upcoming / ongoing visit). */
+  bookablePets(): any[] {
+    return (this.pets() || []).filter((p) => !this.petHasActiveVisit(p.id));
+  }
+
   togglePet(id: string) {
+    if (this.petHasActiveVisit(id)) return;
     if (this.isPetOn(id)) {
       this.petIds = this.petIds.filter((x) => x !== id);
     } else {
       this.petIds = [...this.petIds, id];
     }
-    this.allowOverlap.set(false);
     if (this.petIds[0]) this.activePet.set(this.petIds[0]);
+    this.error.set('');
+  }
+
+  /** True when this pet already has an upcoming / ongoing visit. */
+  petHasActiveVisit(id: string): boolean {
+    const pet = this.pets().find((p) => p.id === id);
+    const petName = String(pet?.name || '').trim().toLowerCase();
+    return this.activeBookings().some((b) => {
+      const bid = String(b?.petId || b?.pet?.id || '').trim();
+      if (bid && bid === id) return true;
+      if (Array.isArray(b?.petIds) && b.petIds.some((x: any) => String(x) === id)) return true;
+      const bName = String(b?.petName || '').trim().toLowerCase();
+      return !!(petName && bName && bName === petName);
+    });
   }
 
   conflictBooking(): any | null {
-    if (this.allowOverlap()) return null;
     for (const id of this.petIds) {
-      const hit = this.activeBookings().find((b) => b.petId === id);
+      if (!this.petHasActiveVisit(id)) continue;
+      const pet = this.pets().find((p) => p.id === id);
+      const petName = String(pet?.name || '').trim().toLowerCase();
+      const hit = this.activeBookings().find((b) => {
+        const bid = String(b?.petId || b?.pet?.id || '').trim();
+        if (bid && bid === id) return true;
+        if (Array.isArray(b?.petIds) && b.petIds.some((x: any) => String(x) === id)) return true;
+        const bName = String(b?.petName || '').trim().toLowerCase();
+        return !!(petName && bName && bName === petName);
+      });
       if (hit) {
-        const pet = this.pets().find((p) => p.id === id);
         return { ...hit, petName: hit.petName || pet?.name };
       }
     }
@@ -1526,7 +1614,6 @@ export class BookWizardComponent implements OnInit {
   pickPet(id: string) {
     this.petIds = [id];
     this.activePet.set(id);
-    this.allowOverlap.set(false);
   }
 
   pretty(r: string) {
@@ -1737,8 +1824,8 @@ export class BookWizardComponent implements OnInit {
         this.error.set('Select at least one pet to continue.');
         return false;
       }
-      if (this.conflictBooking() && !this.allowOverlap()) {
-        this.error.set('This pet already has an active visit. Open it, or choose Book anyway.');
+      if (this.conflictBooking()) {
+        this.error.set('This pet already has an upcoming or ongoing visit. Open it instead of booking another.');
         return false;
       }
     }
@@ -1835,8 +1922,8 @@ export class BookWizardComponent implements OnInit {
       this.step.set(5);
       return;
     }
-    if (this.conflictBooking() && !this.allowOverlap()) {
-      this.error.set('This pet already has an active visit.');
+    if (this.conflictBooking()) {
+      this.error.set('This pet already has an upcoming or ongoing visit.');
       this.step.set(1);
       return;
     }

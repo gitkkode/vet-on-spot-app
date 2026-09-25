@@ -1,13 +1,37 @@
 import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { BookingGateService } from '../../services/booking-gate.service';
+import { VosDatePickerComponent } from '../../shared/vos-date-picker.component';
+import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
+import {
+  applyPendingEditToBooking,
+  markBookingSuperseded,
+  readPendingEdit,
+  writePendingEdit,
+  type PendingBookingEdit,
+} from '../../utils/booking-pending';
 
 const CONSULT_FEE = '₹799';
 
+/** Same slots as the booking wizard — only these times can be chosen. */
+const TIME_SLOTS = [
+  '9:00 AM',
+  '10:00 AM',
+  '11:00 AM',
+  '12:00 PM',
+  '2:00 PM',
+  '4:00 PM',
+  '6:00 PM',
+  '8:00 PM',
+];
+
+type PendingEdit = PendingBookingEdit;
+
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule],
+  imports: [RouterLink, FormsModule, VosDatePickerComponent, VosSelectComponent],
   selector: 'app-booking-detail',
   template: `
     <a routerLink="/bookings" class="vos-back"><span class="vos-back__chev" aria-hidden="true">‹</span> Appointments</a>
@@ -28,6 +52,20 @@ const CONSULT_FEE = '₹799';
     } @else if (b(); as booking) {
       @if (justBooked()) {
         <div class="toast-ok" role="status">You’re booked — we’ll nudge you here as things move.</div>
+      }
+      @if (editOk()) {
+        <div class="toast-ok" role="status">{{ editOk() }}</div>
+      }
+      @if (pendingChange()) {
+        <div class="pending-banner" role="status">
+          Sent to care team — they’ll update the visit for
+          <strong>{{ prettyDate(pendingChange()!.preferredDate) }}</strong>
+          at
+          <strong>{{ pendingChange()!.preferredTime }}</strong>
+          @if (pendingChange()!.ticketId) {
+            <span class="pending-banner__ticket"> · Ticket {{ pendingChange()!.ticketId }}</span>
+          }
+        </div>
       }
 
       <header
@@ -141,10 +179,16 @@ const CONSULT_FEE = '₹799';
               <span class="act__sub">Available once your vet is on the way</span>
             </div>
           }
-          <button type="button" class="act" style="--i: 1" (click)="openEdit()">
+          <button type="button" class="act" style="--i: 1" (click)="openEdit()" [disabled]="!canModify(booking)">
             <span class="act__title">Modify visit</span>
             <span class="act__sub">Change time, address, or reason</span>
           </button>
+          @if (canCancel(booking)) {
+            <button type="button" class="act act--danger" style="--i: 1b" (click)="openCancel()">
+              <span class="act__title">Cancel appointment</span>
+              <span class="act__sub">Stop this visit — you can book again later</span>
+            </button>
+          }
           <a class="act" style="--i: 2" routerLink="/televet" [queryParams]="petQ(booking)">
             <span class="act__title">Talk to a vet</span>
             <span class="act__sub">Quick consult while you wait</span>
@@ -155,7 +199,7 @@ const CONSULT_FEE = '₹799';
           </a>
           <a class="act" style="--i: 4" routerLink="/support" [queryParams]="{ bookingId: booking.id }">
             <span class="act__title">Need help</span>
-            <span class="act__sub">Reschedule, cancel, or ask us anything</span>
+            <span class="act__sub">Ask us anything about this visit</span>
           </a>
           @if (visitId()) {
             <a class="act" style="--i: 5" [routerLink]="['/visits', visitId()]">
@@ -173,34 +217,110 @@ const CONSULT_FEE = '₹799';
       </section>
 
       @if (editOpen()) {
-        <div class="modal-backdrop" (click)="editOpen.set(false)"></div>
-        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
-          <h2 id="edit-title">Modify visit</h2>
-          <p>Update the details below. We’ll notify the care team.</p>
-          <label class="modal__field">
-            <span>Date</span>
-            <input type="date" [(ngModel)]="editDate" name="editDate" />
-          </label>
-          <label class="modal__field">
-            <span>Time</span>
-            <input type="text" [(ngModel)]="editTime" name="editTime" placeholder="e.g. 10:00 AM" />
-          </label>
-          <label class="modal__field">
-            <span>Address</span>
-            <textarea [(ngModel)]="editAddress" name="editAddress" rows="2"></textarea>
-          </label>
-          <label class="modal__field">
-            <span>Reason</span>
-            <input type="text" [(ngModel)]="editReason" name="editReason" />
-          </label>
-          @if (editError()) {
-            <p class="modal__err">{{ editError() }}</p>
-          }
-          <div class="modal__actions">
-            <button type="button" class="ghost" (click)="editOpen.set(false)">Cancel</button>
-            <button type="button" class="btn" [disabled]="editSaving()" (click)="saveEdit()">
-              {{ editSaving() ? 'Saving…' : 'Save changes' }}
-            </button>
+        <div class="modal-layer" role="presentation" (click)="closeEdit()">
+          <div
+            class="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-title"
+            (click)="$event.stopPropagation()"
+          >
+            <h2 id="edit-title">Modify visit</h2>
+            <p>Update the details below. We’ll notify the care team.</p>
+            <label class="modal__field">
+              <span>Date</span>
+              <vos-date-picker
+                name="editDate"
+                [(ngModel)]="editDate"
+                [min]="minEditDate"
+                placeholder="Pick a future date"
+                (ngModelChange)="onEditDateChange($event)"
+              />
+            </label>
+            <label class="modal__field">
+              <span>Time</span>
+              <vos-select
+                name="editTime"
+                [options]="availableTimeOptions()"
+                [(ngModel)]="editTime"
+                placeholder="Select a time slot"
+                ariaLabel="Visit time slot"
+              />
+              @if (editDate === minEditDate) {
+                <em class="modal__hint">Past times for today aren’t available.</em>
+              }
+            </label>
+            <label class="modal__field">
+              <span>Address</span>
+              <textarea [(ngModel)]="editAddress" name="editAddress" rows="2"></textarea>
+            </label>
+            <label class="modal__field">
+              <span>Reason</span>
+              <input type="text" [(ngModel)]="editReason" name="editReason" />
+            </label>
+            @if (editError()) {
+              <p class="modal__err" role="alert">{{ editError() }}</p>
+            }
+            <div class="modal__actions">
+              <button type="button" class="ghost" (click)="closeEdit()">Back</button>
+              <button
+                type="button"
+                class="btn"
+                [disabled]="editSaving()"
+                (click)="saveEdit()"
+              >
+                {{ editSaving() ? 'Saving…' : 'Save changes' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+
+      @if (cancelOpen()) {
+        <div class="modal-layer" role="presentation" (click)="closeCancel()">
+          <div
+            class="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-title"
+            (click)="$event.stopPropagation()"
+          >
+            <h2 id="cancel-title">Cancel this appointment?</h2>
+            <p>
+              This will cancel
+              <strong>{{ booking.petName || 'your pet' }}’s</strong>
+              visit on
+              <strong>{{ prettyDate(booking.scheduledDate) }}</strong>
+              @if (booking.scheduledTime) {
+                at <strong>{{ booking.scheduledTime }}</strong>
+              }.
+              You can book again anytime.
+            </p>
+            <label class="modal__field">
+              <span>Reason (optional)</span>
+              <input
+                type="text"
+                [(ngModel)]="cancelReason"
+                name="cancelReason"
+                placeholder="e.g. Pet feeling better, schedule conflict"
+              />
+            </label>
+            @if (cancelError()) {
+              <p class="modal__err" role="alert">{{ cancelError() }}</p>
+            }
+            <div class="modal__actions">
+              <button type="button" class="ghost" (click)="closeCancel()" [disabled]="cancelling()">
+                Keep visit
+              </button>
+              <button
+                type="button"
+                class="btn btn--danger"
+                [disabled]="cancelling()"
+                (click)="confirmCancel()"
+              >
+                {{ cancelling() ? 'Cancelling…' : 'Cancel appointment' }}
+              </button>
+            </div>
           </div>
         </div>
       }
@@ -267,7 +387,14 @@ const CONSULT_FEE = '₹799';
         }
       </section>
 
-      <a class="again" routerLink="/book/new" [queryParams]="petQ(booking)">Book another visit →</a>
+      @if (bookingBlocked(booking)) {
+        <span
+          class="again again--disabled"
+          title="This pet already has an upcoming or ongoing appointment"
+        >Book another visit →</span>
+      } @else {
+        <a class="again" routerLink="/book/new" [queryParams]="petQ(booking)">Book another visit →</a>
+      }
     }
   `,
   styles: [`
@@ -332,14 +459,27 @@ const CONSULT_FEE = '₹799';
     .chip-skel { height: 96px; margin-bottom: 12px; border-radius: 18px; }
 
     .toast-ok {
-      margin-bottom: 14px;
+      margin: 0 0 14px;
       padding: 12px 16px;
-      border-radius: 16px;
-      background: #ecfdf3;
+      border-radius: 14px;
+      background: #ecf8f0;
+      border: 1px solid rgba(31, 122, 76, 0.25);
       color: #1f7a4c;
+      font-weight: 600;
+    }
+    .pending-banner {
+      margin: 0 0 14px;
+      padding: 12px 16px;
+      border-radius: 14px;
+      background: #fff7ed;
+      border: 1px solid rgba(253, 74, 41, 0.28);
+      color: var(--vos-ink);
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .pending-banner__ticket {
       font-weight: 700;
-      font-size: 0.98rem;
-      animation: rise 0.4s ease both;
+      color: var(--vos-brand, #FD4A29);
     }
 
     .hero {
@@ -678,6 +818,20 @@ const CONSULT_FEE = '₹799';
       opacity: 1;
     }
     .act--muted:hover { transform: none; box-shadow: none; border-color: var(--vos-border, #e8e0d4); }
+    .act--danger {
+      border-color: rgba(180, 35, 24, 0.28);
+      background: #fff8f7;
+    }
+    .act--danger .act__title { color: #B42318; }
+    .act--danger:hover {
+      border-color: rgba(180, 35, 24, 0.45);
+      box-shadow: 0 10px 24px rgba(180, 35, 24, 0.12);
+    }
+    button.act:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
     .act--primary {
       background: linear-gradient(135deg, #1a100e 0%, #0a0a0a 100%);
       color: #fff;
@@ -946,6 +1100,13 @@ const CONSULT_FEE = '₹799';
     }
     .again:hover { opacity: 0.8; }
     .again:active { transform: translateX(2px); }
+    .again--disabled,
+    .again--disabled:hover {
+      color: #b0aba3;
+      cursor: not-allowed;
+      opacity: 1;
+      transform: none;
+    }
 
     @media (max-width: 480px) {
       .hero { padding: 22px 18px 18px; border-radius: 24px; }
@@ -1012,18 +1173,28 @@ const CONSULT_FEE = '₹799';
       .act:hover, .fact:hover { transform: none; }
     }
 
-    .modal-backdrop {
-      position: fixed; inset: 0; z-index: 80;
+    .modal-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+      box-sizing: border-box;
       background: rgba(10, 10, 10, 0.45);
       backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      overflow: auto;
+      overscroll-behavior: contain;
     }
     .modal {
-      position: fixed; z-index: 81;
-      left: 50%; top: 50%;
-      transform: translate(-50%, -50%);
-      width: min(440px, calc(100vw - 32px));
-      max-height: calc(100vh - 48px);
-      overflow: auto;
+      position: relative;
+      z-index: 1;
+      width: min(440px, 100%);
+      max-height: min(calc(100vh - 32px), 720px);
+      overflow: visible;
+      margin: auto;
       padding: 24px 22px;
       border-radius: 20px;
       background: #fff;
@@ -1046,6 +1217,11 @@ const CONSULT_FEE = '₹799';
       font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
       text-transform: uppercase; color: var(--vos-ink-muted);
       font-family: var(--vos-mono);
+      position: relative;
+      z-index: 1;
+    }
+    .modal__field:focus-within {
+      z-index: 5;
     }
     .modal__field input,
     .modal__field textarea {
@@ -1056,7 +1232,30 @@ const CONSULT_FEE = '₹799';
       text-transform: none; letter-spacing: 0;
       color: var(--vos-ink); background: #faf8f4;
     }
-    .modal__err { color: #b42318; font-weight: 600; margin: 0 0 10px; }
+    .modal__err {
+      color: #b42318;
+      font-weight: 700;
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #fff5f3;
+      border: 1px solid rgba(180, 35, 24, 0.22);
+      font-family: var(--vos-font);
+      font-size: 0.9rem;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .modal__hint {
+      display: block;
+      margin-top: 6px;
+      font-style: normal;
+      font-family: var(--vos-font);
+      font-size: 0.82rem;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--vos-ink-muted);
+    }
     .modal__actions {
       display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 8px;
     }
@@ -1066,6 +1265,9 @@ const CONSULT_FEE = '₹799';
     }
     .modal__actions .btn {
       background: linear-gradient(135deg, #FD4A29, #E03E20); color: #fff;
+    }
+    .modal__actions .btn--danger {
+      background: #B42318;
     }
     .modal__actions .btn:disabled { opacity: 0.55; cursor: not-allowed; }
     .modal__actions .ghost {
@@ -1091,11 +1293,20 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
   readonly editOpen = signal(false);
   readonly editSaving = signal(false);
   readonly editError = signal('');
+  readonly editOk = signal('');
+  readonly cancelOpen = signal(false);
+  readonly cancelling = signal(false);
+  readonly cancelError = signal('');
+  readonly pendingChange = signal<PendingEdit | null>(null);
   consultFee = CONSULT_FEE;
   editDate = '';
   editTime = '';
   editAddress = '';
   editReason = '';
+  cancelReason = '';
+  minEditDate = '';
+  private readonly allTimeSlots = TIME_SLOTS;
+  private editOkTimer: ReturnType<typeof setTimeout> | null = null;
 
   private id = '';
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -1108,15 +1319,36 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
   constructor(
     private api: CustomerApiService,
     private route: ActivatedRoute,
+    private router: Router,
+    private bookingGate: BookingGateService,
   ) {}
 
+  bookingBlocked(booking: any): boolean {
+    const petId = booking?.petId || booking?.pet?.id || this.petQ(booking)?.petId;
+    return this.bookingGate.isBlocked(petId, booking?.petName);
+  }
+
   ngOnInit() {
-    this.id = this.route.snapshot.paramMap.get('id') || '';
-    this.justBooked.set(this.route.snapshot.queryParamMap.get('booked') === '1');
-    void this.load().then(() => {
-      if (this.route.snapshot.queryParamMap.get('edit') === '1') {
-        this.openEdit();
-      }
+    void this.bookingGate.refresh();
+    this.route.paramMap.subscribe((params) => {
+      const nextId = params.get('id') || '';
+      if (!nextId) return;
+      const changed = nextId !== this.id;
+      this.id = nextId;
+      this.justBooked.set(
+        this.route.snapshot.queryParamMap.get('booked') === '1' ||
+          this.route.snapshot.queryParamMap.get('rescheduled') === '1',
+      );
+      void this.load().then(() => {
+        if (changed && this.route.snapshot.queryParamMap.get('edit') === '1') {
+          this.openEdit();
+        } else if (!changed && this.route.snapshot.queryParamMap.get('edit') === '1') {
+          this.openEdit();
+        }
+        if (this.route.snapshot.queryParamMap.get('cancel') === '1' && this.canCancel(this.b())) {
+          this.openCancel();
+        }
+      });
     });
     this.refreshTimer = setInterval(() => {
       void this.load(true);
@@ -1133,6 +1365,8 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
     if (this.copyTimer) clearTimeout(this.copyTimer);
     if (this.flashTimer) clearTimeout(this.flashTimer);
     if (this.tapTimer) clearTimeout(this.tapTimer);
+    if (this.editOkTimer) clearTimeout(this.editOkTimer);
+    document.body.style.overflow = '';
   }
 
   journeyLive(): boolean {
@@ -1277,40 +1511,359 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
 
   openEdit() {
     const booking = this.b();
-    this.editDate = (booking?.scheduledDate || '').toString().slice(0, 10);
-    this.editTime = booking?.scheduledTime || '';
-    this.editAddress = booking?.location || '';
-    this.editReason = booking?.reason || '';
+    this.minEditDate = this.toIsoDate(new Date());
+    const rawDate = String(booking?.scheduledDate || booking?.preferredDate || '')
+      .toString()
+      .slice(0, 10);
+    this.editDate = rawDate && rawDate >= this.minEditDate ? rawDate : this.minEditDate;
+    this.editTime = this.normalizeSlot(booking?.scheduledTime || booking?.preferredTime || '');
+    this.editAddress = String(booking?.location || booking?.address || '').trim();
+    this.editReason = String(booking?.reason || booking?.reasonForVisit || '').trim();
+    this.ensureEditableSlot();
     this.editError.set('');
     this.editOpen.set(true);
+    document.body.style.overflow = 'hidden';
+  }
+
+  closeEdit() {
+    this.editOpen.set(false);
+    document.body.style.overflow = '';
+  }
+
+  canCancel(booking: any): boolean {
+    if (!booking) return false;
+    if (booking._superseded || booking._hideFromUpcoming) return false;
+    const st = String(
+      booking?.customerStatus?.code || booking?.customerStatus?.label || booking?.status || '',
+    ).toLowerCase();
+    return !/(complet|cancel|done|no.?show|closed|declined|missed)/.test(st);
+  }
+
+  canModify(booking: any): boolean {
+    return this.canCancel(booking);
+  }
+
+  openCancel() {
+    if (!this.canCancel(this.b())) return;
+    this.cancelReason = '';
+    this.cancelError.set('');
+    this.cancelOpen.set(true);
+    document.body.style.overflow = 'hidden';
+  }
+
+  closeCancel() {
+    this.cancelOpen.set(false);
+    this.cancelling.set(false);
+    this.cancelError.set('');
+    document.body.style.overflow = '';
+  }
+
+  async confirmCancel() {
+    const booking = this.b();
+    const bookingId = String(booking?.id || booking?.uuid || booking?._id || this.id || '').trim();
+    if (!bookingId) {
+      this.cancelError.set('Missing booking id — refresh and try again.');
+      return;
+    }
+    this.cancelling.set(true);
+    this.cancelError.set('');
+    try {
+      const result = await this.api.cancelBooking(bookingId, {
+        reason: this.cancelReason.trim() || 'Cancelled by customer',
+        petId: String(booking?.petId || booking?.pet?.id || '').trim() || undefined,
+        petName: String(booking?.petName || booking?.pet?.name || '').trim() || undefined,
+        preferredDate: booking?.scheduledDate || booking?.preferredDate,
+        preferredTime: booking?.scheduledTime || booking?.preferredTime,
+        address: booking?.location || booking?.address,
+      });
+
+      // Hide from Upcoming immediately if API is slow to reflect
+      const date = String(booking?.scheduledDate || booking?.preferredDate || '').slice(0, 10);
+      const time = String(booking?.scheduledTime || booking?.preferredTime || '').trim();
+      writePendingEdit(bookingId, {
+        preferredDate: date || this.toIsoDate(new Date()),
+        preferredTime: time || '—',
+        address: String(booking?.location || booking?.address || '').trim() || '—',
+        reasonForVisit: this.cancelReason.trim() || 'Cancelled by customer',
+        requestedAt: new Date().toISOString(),
+        hideFromUpcoming: true,
+        ticketId: result?.ticketId,
+      });
+
+      const petId = String(booking?.petId || booking?.pet?.id || '').trim();
+      this.bookingGate.clearPetBlocked(petId, booking?.petName);
+      void this.bookingGate.refresh();
+
+      this.closeCancel();
+      await this.router.navigate(['/bookings'], {
+        queryParams: {
+          cancelled: '1',
+          via: result?.via || 'api',
+          ticket: result?.ticketId || null,
+        },
+      });
+    } catch (e: any) {
+      const raw = String(e?.error?.message || e?.message || '').trim();
+      this.cancelError.set(
+        /route not found/i.test(raw)
+          ? 'Couldn’t cancel right now. Please try again or contact Support.'
+          : raw || 'Couldn’t cancel this visit. Try again or contact support.',
+      );
+      this.cancelling.set(false);
+    }
+  }
+
+  onEditDateChange(iso: string) {
+    this.editDate = iso || this.minEditDate;
+    this.ensureEditableSlot();
+    this.editError.set('');
+  }
+
+  availableTimeOptions(): VosSelectOption[] {
+    return this.allTimeSlots
+      .filter((t) => !this.isSlotPast(t, this.editDate))
+      .map((t) => ({ value: t, label: t }));
   }
 
   async saveEdit() {
-    if (!this.id) return;
-    this.editSaving.set(true);
+    const booking = this.b();
+    const bookingId = String(booking?.id || booking?.uuid || booking?._id || this.id || '').trim();
+    const petId = String(booking?.petId || booking?.pet?.id || '').trim();
+    if (!bookingId) {
+      this.editError.set('Missing booking id — refresh and try again.');
+      return;
+    }
+    if (!petId) {
+      this.editError.set('Missing pet for this visit — refresh and try again.');
+      return;
+    }
+
     this.editError.set('');
+    this.ensureEditableSlot();
+
+    if (!this.editDate || this.editDate < this.minEditDate) {
+      this.editError.set('Please pick today or a future date.');
+      return;
+    }
+    if (!this.editTime) {
+      this.editError.set('Pick a time slot for the visit.');
+      return;
+    }
+    if (this.isSlotPast(this.editTime, this.editDate)) {
+      this.editError.set('Please select a valid future time.');
+      this.editTime = '';
+      this.ensureEditableSlot();
+      return;
+    }
+    if (!this.editAddress.trim()) {
+      this.editError.set('Address is required.');
+      return;
+    }
+
+    this.editSaving.set(true);
     try {
-      await this.api.updateBooking(this.id, {
+      const body: Record<string, unknown> = {
+        petId,
+        petIds: booking?.petIds || [petId],
         preferredDate: this.editDate,
         preferredTime: this.editTime,
-        address: this.editAddress,
-        reasonForVisit: this.editReason,
+        address: this.editAddress.trim(),
+        reasonForVisit: this.editReason.trim() || booking?.reasonForVisit || booking?.reason || 'General visit',
+        intakeText: booking?.intakeText || `Updated from portal (${bookingId})`,
+        consultationType: booking?.consultationType || 'Home Visit',
+        uuid: booking?.uuid,
+        _id: booking?._id,
+        bookingId,
+      };
+      const updated = await this.api.updateBooking(bookingId, body);
+      const via = String((updated as any)?.via || 'api');
+      const newId = String((updated as any)?.id || bookingId).trim();
+      const slotEdit = {
+        preferredDate: this.editDate,
+        preferredTime: this.editTime,
+        address: this.editAddress.trim(),
+        reasonForVisit: this.editReason.trim() || String(body['reasonForVisit'] || ''),
+        requestedAt: new Date().toISOString(),
+        petId,
+        petName: String(booking?.petName || booking?.pet?.name || '').trim() || undefined,
+        consultationType: String(booking?.consultationType || 'Home Visit'),
+      };
+
+      const next = {
+        preferredDate: this.editDate,
+        preferredTime: this.editTime,
         scheduledDate: this.editDate,
         scheduledTime: this.editTime,
-        location: this.editAddress,
-        reason: this.editReason,
+        location: this.editAddress.trim(),
+        address: this.editAddress.trim(),
+        reason: this.editReason.trim(),
+        reasonForVisit: this.editReason.trim(),
+        status: 'scheduled',
+        customerStatus: {
+          label: 'Scheduled',
+          code: 'scheduled',
+          detail: via === 'recreate' ? 'Rescheduled visit' : 'Updated visit',
+        },
+      };
+
+      if (via === 'recreate' && newId && newId !== bookingId) {
+        markBookingSuperseded(bookingId, newId, slotEdit);
+        writePendingEdit(newId, {
+          preferredDate: slotEdit.preferredDate,
+          preferredTime: slotEdit.preferredTime,
+          address: slotEdit.address,
+          reasonForVisit: slotEdit.reasonForVisit,
+          requestedAt: slotEdit.requestedAt,
+          ticketId: String((updated as any)?.ticketId || '').trim() || undefined,
+          synthetic: {
+            id: newId,
+            petId,
+            petName: slotEdit.petName,
+            consultationType: slotEdit.consultationType,
+            status: 'scheduled',
+          },
+        });
+        this.closeEdit();
+        this.showEditOk(
+          (updated as any)?.adminNotified
+            ? 'Visit rescheduled — care team notified. Opening the new appointment.'
+            : 'Visit rescheduled — opening your updated appointment.',
+        );
+        await this.router.navigate(['/bookings', newId], {
+          queryParams: { booked: '1', rescheduled: '1' },
+          replaceUrl: true,
+        });
+        return;
+      }
+
+      this.b.set({
+        ...(this.b() || {}),
+        ...(updated && typeof updated === 'object' ? updated : {}),
+        ...next,
       });
-      this.editOpen.set(false);
-      await this.load(true);
+      writePendingEdit(bookingId, {
+        preferredDate: slotEdit.preferredDate,
+        preferredTime: slotEdit.preferredTime,
+        address: slotEdit.address,
+        reasonForVisit: slotEdit.reasonForVisit,
+        requestedAt: slotEdit.requestedAt,
+        ticketId: String((updated as any)?.ticketId || '').trim() || undefined,
+        synthetic: {
+          id: bookingId,
+          petId,
+          petName: slotEdit.petName,
+          consultationType: slotEdit.consultationType,
+          status: 'scheduled',
+        },
+      });
+      this.pendingChange.set(readPendingEdit(bookingId));
+      this.showEditOk(
+        via === 'api'
+          ? 'Visit updated — care team can see the new details.'
+          : 'Change sent to care team (Support). They’ll update this visit in admin.',
+      );
+      this.closeEdit();
+
+      try {
+        await this.load(true);
+        const fresh = this.b();
+        const savedDate = String(fresh?.scheduledDate || fresh?.preferredDate || '').slice(0, 10);
+        if (savedDate !== this.editDate) {
+          this.b.set({ ...this.b(), ...next });
+        }
+      } catch {
+        /* optimistic state already applied */
+      }
     } catch (e: any) {
-      this.editError.set(
+      const apiMsg =
         e?.error?.message ||
-          e?.message ||
-          'Couldn’t update this visit. Try Support if changes don’t save.',
+        e?.error?.error ||
+        (Array.isArray(e?.error?.errors) ? e.error.errors.join(', ') : null) ||
+        (typeof e?.error === 'string' ? e.error : null) ||
+        e?.message;
+      this.editError.set(
+        apiMsg || 'Couldn’t update this visit. Try Support if changes don’t save.',
       );
     } finally {
       this.editSaving.set(false);
     }
+  }
+
+  private showEditOk(msg: string) {
+    this.editOk.set(msg);
+    if (this.editOkTimer) clearTimeout(this.editOkTimer);
+    this.editOkTimer = setTimeout(() => {
+      this.editOk.set('');
+      this.editOkTimer = null;
+    }, 5000);
+  }
+
+  private applyPendingEdit(booking: any): any {
+    const merged = applyPendingEditToBooking(booking);
+    const id = String(merged?.id || this.id || '');
+    const pending = readPendingEdit(id);
+    // Don't show “pending change” banner for superseded (cancelled) stubs
+    this.pendingChange.set(pending && !pending.hideFromUpcoming ? pending : null);
+    return merged;
+  }
+
+  /** Keep date/time on a bookable future slot (same rules as new booking). */
+  private ensureEditableSlot() {
+    if (!this.minEditDate) this.minEditDate = this.toIsoDate(new Date());
+    if (!this.editDate || this.editDate < this.minEditDate) {
+      this.editDate = this.minEditDate;
+    }
+
+    let options = this.availableTimeOptions();
+    if (!options.length) {
+      const next = new Date();
+      next.setDate(next.getDate() + 1);
+      this.editDate = this.toIsoDate(next);
+      options = this.availableTimeOptions();
+    }
+
+    if (!this.editTime || this.isSlotPast(this.editTime, this.editDate) || !options.some((o) => o.value === this.editTime)) {
+      this.editTime = options[0]?.value || '';
+    }
+  }
+
+  private toIsoDate(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  private normalizeSlot(raw: string): string {
+    const t = String(raw || '').trim();
+    if (!t) return '';
+    const exact = this.allTimeSlots.find((s) => s.toLowerCase() === t.toLowerCase());
+    if (exact) return exact;
+    const mins = this.slotMinutes(t);
+    if (mins == null) return '';
+    return this.allTimeSlots.find((s) => this.slotMinutes(s) === mins) || '';
+  }
+
+  private slotMinutes(t: string): number | null {
+    const m = t.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    const ap = (m[3] || '').toUpperCase();
+    if (ap === 'PM' && h !== 12) h += 12;
+    if (ap === 'AM' && h === 12) h = 0;
+    if (!ap && h <= 23) return h * 60 + min;
+    if (!ap) return null;
+    return h * 60 + min;
+  }
+
+  private isSlotPast(t: string, dateIso: string): boolean {
+    if (!dateIso || dateIso !== this.minEditDate) return false;
+    const mins = this.slotMinutes(t);
+    if (mins == null) return false;
+    const now = new Date();
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    return mins <= nowMins;
   }
 
   prettyPay(p: string | null | undefined): string {
@@ -1402,7 +1955,7 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
         this.api.bookingJourney(this.id).catch(() => null),
         this.api.bookingMatch(this.id).catch(() => null),
       ]);
-      this.b.set(booking);
+      this.b.set(this.applyPendingEdit(booking));
       this.journey.set(journey);
       this.match.set(match);
       this.lastLoadedAt = Date.now();
@@ -1424,14 +1977,45 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
         if (!silent) {
           this.error.set('Your session expired. Sign in again to view this appointment.');
         }
-      } else if (!silent) {
-        if (status === 404) {
-          this.error.set('We couldn’t find this appointment — it may belong to another account.');
-        } else {
-          this.error.set(
-            e?.error?.message || 'Something went wrong loading this visit. Please try again.',
+      } else if (status === 404) {
+        // Reschedule may land here before the new booking is readable — use pending synthetic
+        const pending = readPendingEdit(this.id);
+        if (pending?.preferredDate) {
+          const syn = pending.synthetic;
+          this.b.set(
+            this.applyPendingEdit({
+              id: this.id,
+              petId: syn?.petId,
+              petName: syn?.petName || 'Your pet',
+              preferredDate: pending.preferredDate,
+              preferredTime: pending.preferredTime,
+              scheduledDate: pending.preferredDate,
+              scheduledTime: pending.preferredTime,
+              location: pending.address,
+              address: pending.address,
+              reason: pending.reasonForVisit,
+              reasonForVisit: pending.reasonForVisit,
+              consultationType: syn?.consultationType || 'Home Visit',
+              status: 'scheduled',
+              customerStatus: {
+                label: 'Scheduled',
+                code: 'scheduled',
+                detail: 'Rescheduled visit — syncing with care team',
+              },
+              _synthetic: true,
+            }),
           );
+          this.error.set('');
+          this.lastLoadedAt = Date.now();
+          this.updateCountdown();
+          this.updateFreshness();
+        } else if (!silent) {
+          this.error.set('We couldn’t find this appointment — it may belong to another account.');
         }
+      } else if (!silent) {
+        this.error.set(
+          e?.error?.message || 'Something went wrong loading this visit. Please try again.',
+        );
       }
     } finally {
       this.loading.set(false);

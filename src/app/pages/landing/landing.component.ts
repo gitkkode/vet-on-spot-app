@@ -146,8 +146,8 @@ import { AuthService } from '../../services/auth.service';
         <div class="wrap land-foot__bottom">
           <p class="land-foot__services">Veterinary hospital · Emergency · Diagnostics · Pharmacy · Wellness</p>
           <nav class="land-foot__legal" aria-label="Legal">
-            <a href="https://vetonspot.com/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
-            <a href="https://vetonspot.com/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>
+            <a routerLink="/privacy" [queryParams]="{ from: 'landing' }">Privacy Policy</a>
+            <a routerLink="/terms" [queryParams]="{ from: 'landing' }">Terms of Service</a>
             <a href="mailto:hello@vetonspot.com">Contact Us</a>
           </nav>
           <p class="land-foot__copy">© {{ year }} VetonSpot. All rights reserved.</p>

@@ -1,7 +1,8 @@
 import { Component, OnInit, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
+import { BookingGateService } from '../../services/booking-gate.service';
 
 @Component({
   standalone: true,
@@ -15,6 +16,20 @@ import { ActivePetService } from '../../services/active-pet.service';
         <p class="sub">Tap a pet to open their care home — health, visits, and passport.</p>
       </div>
     </header>
+
+    @if (removedBanner()) {
+      <div class="toast-ok" role="status">
+        @if (removeViaRequest()) {
+          Removal request sent to the care team
+          @if (removeTicket()) {
+            <span> · Ticket {{ removeTicket() }}</span>
+          }
+          . The profile stays visible until they complete it.
+        } @else {
+          Pet profile removed.
+        }
+      </div>
+    }
 
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -54,7 +69,11 @@ import { ActivePetService } from '../../services/active-pet.service';
               }
             </a>
             <div class="card__acts">
-              <a routerLink="/book/new" [queryParams]="{ petId: p.id }" (click)="activate(p.id)">Book</a>
+              @if (bookingBlocked(p.id)) {
+                <span class="act-disabled" title="Already has an upcoming or ongoing visit">Book</span>
+              } @else {
+                <a routerLink="/book/new" [queryParams]="{ petId: p.id }" (click)="activate(p.id)">Book</a>
+              }
               <a [routerLink]="['/pets', p.id, 'health']" (click)="activate(p.id)">Health</a>
             </div>
           </article>
@@ -78,6 +97,15 @@ import { ActivePetService } from '../../services/active-pet.service';
   `,
   styles: [`
     .head { margin-bottom: 22px; }
+    .toast-ok {
+      margin: 0 0 16px;
+      padding: 12px 16px;
+      border-radius: 14px;
+      background: #e8f8ef;
+      color: #0f5132;
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
     .kicker {
       margin: 0 0 6px;
       font-family: var(--vos-mono);
@@ -227,6 +255,15 @@ import { ActivePetService } from '../../services/active-pet.service';
     }
     .card__acts a:last-child { border-right: 0; color: var(--vos-brand); }
     .card__acts a:hover { background: #faf8f4; }
+    .card__acts .act-disabled {
+      padding: 12px 8px;
+      text-align: center;
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: #b0aba3;
+      border-right: 1px solid var(--vos-border);
+      cursor: not-allowed;
+    }
     .card__acts--ghost {
       border-top: 1px solid transparent;
       visibility: hidden;
@@ -281,14 +318,29 @@ export class PetsListComponent implements OnInit {
   readonly loading = signal(true);
   readonly error = signal('');
   readonly brokenPhotos = signal<Set<string>>(new Set());
+  readonly removedBanner = signal(false);
+  readonly removeViaRequest = signal(false);
+  readonly removeTicket = signal('');
 
   constructor(
     private api: CustomerApiService,
     public activePet: ActivePetService,
+    private bookingGate: BookingGateService,
+    private route: ActivatedRoute,
   ) {}
 
   ngOnInit() {
+    const q = this.route.snapshot.queryParamMap;
+    this.removedBanner.set(q.get('removed') === '1');
+    this.removeViaRequest.set(q.get('via') === 'request');
+    this.removeTicket.set(String(q.get('ticket') || '').trim());
     void this.load();
+    void this.bookingGate.refresh();
+  }
+
+  bookingBlocked(petId: string): boolean {
+    const pet = this.pets().find((p) => p.id === petId);
+    return this.bookingGate.isBlocked(petId, pet?.name);
   }
 
   showPhoto(p: { id?: string; photoUrl?: string | null }): boolean {

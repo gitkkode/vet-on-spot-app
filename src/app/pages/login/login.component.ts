@@ -124,9 +124,9 @@ import { environment } from '../../../environments/environment';
 
                   <p class="terms">
                     By continuing, you agree to our
-                    <a href="https://vetonspot.com/terms" target="_blank" rel="noopener noreferrer">Terms</a>
+                    <a routerLink="/terms" [queryParams]="{ from: 'login' }">Terms</a>
                     and
-                    <a href="https://vetonspot.com/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+                    <a routerLink="/privacy" [queryParams]="{ from: 'login' }">Privacy Policy</a>.
                   </p>
                 </div>
               } @else {

@@ -2,10 +2,11 @@ import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, VosSelectComponent],
   selector: 'app-support',
   template: `
     <div class="wrap">
@@ -23,14 +24,12 @@ import { CustomerApiService } from '../../services/customer-api.service';
       <form class="vos-card form" (ngSubmit)="submit()">
         <label class="vos-field"
           >Topic
-          <select [(ngModel)]="category" name="category">
-            <option value="booking_issue">Booking issue</option>
-            <option value="doctor_issue">Doctor issue</option>
-            <option value="payment_issue">Payment issue</option>
-            <option value="prescription_issue">Prescription issue</option>
-            <option value="technical_issue">Technical issue</option>
-            <option value="other">Other</option>
-          </select>
+          <vos-select
+            name="category"
+            [options]="categoryOptions"
+            [(ngModel)]="category"
+            ariaLabel="Topic"
+          />
         </label>
         <label class="vos-field">Subject<input [(ngModel)]="subject" name="subject" required /></label>
         <label class="vos-field"
@@ -142,6 +141,14 @@ import { CustomerApiService } from '../../services/customer-api.service';
 })
 export class SupportComponent implements OnInit {
   category = 'booking_issue';
+  readonly categoryOptions: VosSelectOption[] = [
+    { value: 'booking_issue', label: 'Booking issue' },
+    { value: 'doctor_issue', label: 'Doctor issue' },
+    { value: 'payment_issue', label: 'Payment issue' },
+    { value: 'prescription_issue', label: 'Prescription issue' },
+    { value: 'technical_issue', label: 'Technical issue' },
+    { value: 'other', label: 'Other' },
+  ];
   subject = '';
   body = '';
   comment = '';
