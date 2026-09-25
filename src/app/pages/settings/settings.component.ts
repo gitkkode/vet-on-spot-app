@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
 
 const PREFS_KEY = 'vos.notification.prefs';
 const EXTRA_KEY = 'vos.account.prefs';
@@ -22,7 +23,7 @@ type Extra = {
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule],
+  imports: [RouterLink, FormsModule, VosSelectComponent],
   selector: 'app-settings',
   template: `
     <div class="wrap">
@@ -85,19 +86,21 @@ type Extra = {
           <h2>Care defaults</h2>
           <label class="field">
             <span>Remind me before visits</span>
-            <select [(ngModel)]="extra.reminderLeadHours" name="reminderLead" (ngModelChange)="persistExtra()">
-              <option value="1">1 hour before</option>
-              <option value="2">2 hours before</option>
-              <option value="24">1 day before</option>
-              <option value="48">2 days before</option>
-            </select>
+            <vos-select
+              name="reminderLead"
+              [options]="reminderOptions"
+              [(ngModel)]="extra.reminderLeadHours"
+              (ngModelChange)="persistExtra()"
+            />
           </label>
           <label class="field">
             <span>Preferred weight unit</span>
-            <select [(ngModel)]="extra.weightUnit" name="weightUnit" (ngModelChange)="persistExtra()">
-              <option value="kg">Kilograms (kg)</option>
-              <option value="lbs">Pounds (lbs)</option>
-            </select>
+            <vos-select
+              name="weightUnit"
+              [options]="weightOptions"
+              [(ngModel)]="extra.weightUnit"
+              (ngModelChange)="persistExtra()"
+            />
           </label>
         </section>
 
@@ -206,11 +209,7 @@ type Extra = {
       color: var(--vos-ink-muted); letter-spacing: 0.04em; text-transform: uppercase;
     }
     .field:first-of-type { margin-top: 4px; }
-    .field select {
-      min-height: 44px; border-radius: 12px; border: 1px solid var(--vos-border);
-      padding: 8px 12px; font: inherit; font-weight: 600; text-transform: none;
-      letter-spacing: 0; color: var(--vos-ink); background: #fff; width: 100%;
-    }
+    .field vos-select { text-transform: none; letter-spacing: 0; font-weight: 600; }
     .inbox {
       display: inline-block; margin-top: 14px;
       color: var(--vos-brand); font-weight: 700; text-decoration: none;
@@ -246,6 +245,16 @@ export class SettingsComponent implements OnInit {
     quietHours: false,
   };
   readonly ok = signal('');
+  readonly reminderOptions: VosSelectOption[] = [
+    { value: '1', label: '1 hour before' },
+    { value: '2', label: '2 hours before' },
+    { value: '24', label: '1 day before' },
+    { value: '48', label: '2 days before' },
+  ];
+  readonly weightOptions: VosSelectOption[] = [
+    { value: 'kg', label: 'Kilograms (kg)' },
+    { value: 'lbs', label: 'Pounds (lbs)' },
+  ];
 
   constructor(
     private auth: AuthService,

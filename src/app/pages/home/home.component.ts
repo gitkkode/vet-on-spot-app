@@ -2,6 +2,8 @@ import { AfterViewChecked, Component, ElementRef, HostListener, OnInit, ViewChil
 import { RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
+import { BookingGateService } from '../../services/booking-gate.service';
+import { filterUpcomingBookings, normalizeBookingsList } from '../../utils/booking-pending';
 
 @Component({
   standalone: true,
@@ -191,6 +193,13 @@ import { ActivePetService } from '../../services/active-pet.service';
                         [queryParams]="{ edit: '1' }"
                       >{{ na.secondaryCta || 'Modify visit' }}</a>
                     }
+                    @if (na.cancelCommands) {
+                      <a
+                        class="moment__cta moment__cta--ghost moment__cta--cancel"
+                        [routerLink]="na.cancelCommands"
+                        [queryParams]="{ cancel: '1' }"
+                      >{{ na.cancelCta || 'Cancel visit' }}</a>
+                    }
                   </div>
                 </div>
                 <div class="moment__art" aria-hidden="true">
@@ -207,6 +216,11 @@ import { ActivePetService } from '../../services/active-pet.service';
                 <a class="path" [routerLink]="['/bookings', visit.id]">
                   <strong>Open visit</strong>
                   <span>{{ visit.petName || 'Active' }} · already booked</span>
+                </a>
+              } @else if (bookingBlocked()) {
+                <a class="path" routerLink="/bookings">
+                  <strong>View appointments</strong>
+                  <span>A visit is already booked</span>
                 </a>
               } @else {
                 <a class="path" routerLink="/book/new" [queryParams]="petQuery()">
@@ -255,26 +269,76 @@ import { ActivePetService } from '../../services/active-pet.service';
             }
           }
 
-          @if (extraUpcoming(); as extras) {
-            @if (extras.length) {
-              <section class="upcom" aria-label="More appointments">
-                <div class="sec-row">
-                  <h2 class="sec-h">Also upcoming</h2>
-                  <a class="sec-link" routerLink="/bookings">All</a>
-                </div>
-                <div class="upcom__list">
-                  @for (b of extras; track b.id) {
-                    <a class="upcom__card" [routerLink]="['/bookings', b.id]">
-                      <span class="upcom__pill">{{ b.customerStatus?.label || b.status }}</span>
-                      <strong>{{ displayPetName(b.petName) }}</strong>
-                      <span class="upcom__when">{{ prettyWhen(b.scheduledDate, b.scheduledTime) }}</span>
-                      <span class="upcom__chev" aria-hidden="true"></span>
+          <section class="appt-panel" aria-label="Appointments">
+            <div class="appt-panel__inner">
+              <div class="sec-row appt-panel__head">
+                <p class="appt-panel__label">Appointments</p>
+                <a class="sec-link" routerLink="/bookings">All</a>
+              </div>
+
+              @if (petAppointments(); as appts) {
+                @if (appts.length || bookingBlocked()) {
+                  @if (appts.length) {
+                    <div class="appt-panel__list">
+                      @for (b of appts; track b.id) {
+                        <div class="upcom__card upcom__card--row">
+                          <a class="upcom__main" [routerLink]="['/bookings', b.id]">
+                            <span class="upcom__pill">{{ b.customerStatus?.label || b.status }}</span>
+                            <strong>{{ appointmentPetLabel(b) }}</strong>
+                            <span class="upcom__when">{{ prettyWhen(b.scheduledDate, b.scheduledTime) }}</span>
+                          </a>
+                          <div class="upcom__acts">
+                            <a [routerLink]="['/bookings', b.id]">Open</a>
+                            <a [routerLink]="['/bookings', b.id]" [queryParams]="{ cancel: '1' }" class="upcom__cancel">Cancel</a>
+                          </div>
+                        </div>
+                      }
+                    </div>
+                  } @else {
+                    <strong class="appt-panel__title">
+                      @if (h.activePet?.name; as n) {
+                        {{ displayPetName(n) }} already has a visit booked
+                      } @else {
+                        A visit is already booked for this pet
+                      }
+                    </strong>
+                    <p class="appt-panel__detail">
+                      Finish or cancel the existing visit before booking another.
+                    </p>
+                    <a class="appt-panel__cta" routerLink="/bookings" style="margin-bottom: 12px">
+                      View appointments
                     </a>
                   }
-                </div>
-              </section>
-            }
-          }
+                  <button
+                    type="button"
+                    class="appt-panel__cta appt-panel__cta--disabled"
+                    disabled
+                    aria-disabled="true"
+                    title="This pet already has an upcoming or ongoing appointment"
+                  >
+                    Book an appointment
+                  </button>
+                  <p class="appt-panel__hint">
+                    Booking is disabled while this pet has an upcoming or ongoing visit.
+                  </p>
+                } @else {
+                  <strong class="appt-panel__title">
+                    @if (h.activePet?.name; as n) {
+                      No upcoming or ongoing appointments for {{ displayPetName(n) }}
+                    } @else {
+                      No upcoming or ongoing appointments
+                    }
+                  </strong>
+                  <p class="appt-panel__detail">
+                    Schedule a home visit when you’re ready — a vet at your door.
+                  </p>
+                  <a class="appt-panel__cta" routerLink="/book/new" [queryParams]="petQuery()">
+                    Book an appointment
+                  </a>
+                }
+              }
+            </div>
+          </section>
 
           <nav class="util" aria-label="More">
             @if (h.activePet?.id; as pid) {
@@ -625,7 +689,7 @@ import { ActivePetService } from '../../services/active-pet.service';
       .hub {
         grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.85fr);
         gap: 28px 32px;
-        align-items: start;
+        align-items: stretch;
       }
     }
     .hub__main {
@@ -634,9 +698,17 @@ import { ActivePetService } from '../../services/active-pet.service';
       min-width: 0;
     }
     .hub__side {
-      display: grid;
+      display: flex;
+      flex-direction: column;
       gap: 20px;
       min-width: 0;
+      min-height: 100%;
+      height: 100%;
+      align-self: stretch;
+    }
+    .hub__side > .care,
+    .hub__side > .util {
+      flex-shrink: 0;
     }
     .hub__main > *,
     .hub__side > * {
@@ -944,6 +1016,10 @@ import { ActivePetService } from '../../services/active-pet.service';
       border: 1.5px solid rgba(255,255,255,0.55);
     }
     .moment__cta--ghost:hover { background: rgba(255,255,255,0.12) !important; }
+    .moment__cta--cancel {
+      border-color: rgba(255,255,255,0.35);
+      opacity: 0.92;
+    }
     .moment__cta:hover { background: #1a1a1a; transform: translateY(-1px); }
 
     .sec-h {
@@ -1049,6 +1125,103 @@ import { ActivePetService } from '../../services/active-pet.service';
     }
     .care__row span { color: var(--vos-ink-muted); font-size: 0.9rem; }
 
+    .appt-panel {
+      flex: 1 1 auto;
+      padding: 22px 20px;
+      border-radius: 20px;
+      background: #fff;
+      border: 1px solid var(--vos-border);
+      box-shadow: 0 8px 22px rgba(10, 10, 10, 0.04);
+      min-height: min(420px, 55vh);
+      display: flex;
+      align-items: stretch;
+    }
+    @media (min-width: 1100px) {
+      .appt-panel {
+        min-height: 0;
+      }
+    }
+    .appt-panel__inner {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 100%;
+    }
+    .appt-panel__head {
+      margin-bottom: 14px;
+    }
+    .appt-panel__label {
+      margin: 0;
+      font-family: var(--vos-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--vos-ink-muted);
+    }
+    .appt-panel__list {
+      display: grid;
+      gap: 8px;
+      flex: 1 1 auto;
+      align-content: start;
+      margin-bottom: 18px;
+    }
+    .appt-panel__title {
+      display: block;
+      font-family: var(--vos-display);
+      font-size: 1.15rem;
+      letter-spacing: -0.025em;
+      line-height: 1.25;
+      margin: auto 0 8px;
+    }
+    .appt-panel__detail {
+      margin: 0 0 auto;
+      color: var(--vos-ink-muted);
+      font-size: 0.92rem;
+      line-height: 1.4;
+      max-width: 32ch;
+      padding-bottom: 20px;
+    }
+    .appt-panel__cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      align-self: flex-start;
+      margin-top: auto;
+      min-height: 44px;
+      padding: 10px 18px;
+      border-radius: 999px;
+      border: 0;
+      background: #0a0a0a;
+      color: #fff;
+      font-weight: 700;
+      font-size: 0.95rem;
+      font-family: inherit;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.18s ease, transform 0.18s ease;
+    }
+    .appt-panel__cta:hover {
+      background: #1a1a1a;
+      transform: translateY(-1px);
+    }
+    .appt-panel__cta--disabled,
+    .appt-panel__cta--disabled:hover {
+      background: #c8c4bc;
+      color: #fff;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    .appt-panel__hint {
+      margin: 10px 0 0;
+      color: var(--vos-ink-muted);
+      font-size: 0.85rem;
+      line-height: 1.4;
+      max-width: 36ch;
+    }
+
     .upcom {
       padding: 18px;
       border-radius: 20px;
@@ -1072,12 +1245,26 @@ import { ActivePetService } from '../../services/active-pet.service';
       box-shadow: 0 4px 14px rgba(10, 10, 10, 0.03);
       transition: transform 0.18s ease, border-color 0.18s ease;
     }
+    .upcom__card--row {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px;
+      grid-template-columns: unset;
+      grid-template-rows: unset;
+    }
     .upcom__card:hover {
       transform: translateY(-2px);
       border-color: rgba(253, 74, 41, 0.3);
     }
+    .upcom__main {
+      display: grid;
+      gap: 2px;
+      text-decoration: none;
+      color: inherit;
+      min-width: 0;
+    }
     .upcom__pill {
-      grid-column: 1;
       font-family: var(--vos-mono);
       font-size: 10px;
       font-weight: 700;
@@ -1086,16 +1273,38 @@ import { ActivePetService } from '../../services/active-pet.service';
       color: #FD4A29;
       margin-bottom: 2px;
     }
-    .upcom__card strong {
-      grid-column: 1;
+    .upcom__card strong,
+    .upcom__main strong {
       font-family: var(--vos-display);
       font-size: 1.02rem;
       letter-spacing: -0.02em;
     }
     .upcom__when {
-      grid-column: 1;
       color: var(--vos-ink-muted);
       font-size: 0.88rem;
+    }
+    .upcom__acts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .upcom__acts a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-decoration: none;
+      background: #0a0a0a;
+      color: #fff;
+    }
+    .upcom__acts .upcom__cancel {
+      background: transparent;
+      color: #B42318;
+      border: 1px solid rgba(180, 35, 24, 0.35);
     }
     .upcom__chev {
       position: absolute;
@@ -1116,6 +1325,7 @@ import { ActivePetService } from '../../services/active-pet.service';
       border-radius: 16px;
       background: #F7F7F5;
       border: 1px solid var(--vos-border);
+      margin-top: auto;
     }
     .util a {
       font-family: var(--vos-mono);
@@ -1152,6 +1362,7 @@ export class HomeComponent implements OnInit, AfterViewChecked {
   constructor(
     private readonly api: CustomerApiService,
     private readonly activePet: ActivePetService,
+    private readonly bookingGate: BookingGateService,
   ) {}
 
   ngOnInit() {
@@ -1251,9 +1462,9 @@ export class HomeComponent implements OnInit, AfterViewChecked {
     const hs = this.health();
     const petRaw = h?.activePet?.name;
     const pet = petRaw ? this.displayPetName(petRaw) : 'your pet';
-    if (h?.upcoming?.[0]) {
-      const up = h.upcoming[0];
-      return `${this.displayPetName(up.petName || petRaw || 'Your pet')} has a visit ${this.prettyWhen(up.scheduledDate, up.scheduledTime)}.`;
+    const up = this.petAppointments()[0];
+    if (up) {
+      return `${pet} has a visit ${this.prettyWhen(up.scheduledDate, up.scheduledTime)}.`;
     }
     const med = hs?.careStatus?.activeMedications?.[0];
     if (med) {
@@ -1286,13 +1497,20 @@ export class HomeComponent implements OnInit, AfterViewChecked {
       queryParams?: Record<string, string>;
     }> = [];
 
-    const up = h.upcoming?.[0];
+    const up = this.petAppointments()[0];
     if (up) {
       snaps.push({
         key: 'appt',
         label: 'Next visit',
         value: this.prettyWhen(up.scheduledDate, up.scheduledTime),
         commands: ['/bookings', up.id],
+      });
+    } else if (this.bookingBlocked()) {
+      snaps.push({
+        key: 'appt',
+        label: 'Next visit',
+        value: 'Already booked',
+        commands: ['/bookings'],
       });
     } else {
       snaps.push({
@@ -1338,30 +1556,84 @@ export class HomeComponent implements OnInit, AfterViewChecked {
   }
 
   hasUpcoming(): boolean {
-    return !!(this.home()?.upcoming?.[0]?.id);
+    return this.petAppointments().length > 0 || this.bookingBlocked();
+  }
+
+  bookingBlocked(): boolean {
+    const h = this.home();
+    return this.bookingGate.isBlocked(h?.activePet?.id, h?.activePet?.name);
   }
 
   activeVisitForPet(): any | null {
-    const h = this.home();
-    const petId = h?.activePet?.id;
-    const list = h?.upcoming || [];
-    if (!list.length) return null;
-    if (petId) {
-      const hit = list.find((u: any) => u.petId === petId);
-      if (hit) return hit;
-      // If upcoming entries lack petId, treat first as active for this pet when names match.
-      const name = String(h?.activePet?.name || '').toLowerCase();
-      if (name) {
-        const byName = list.find((u: any) => String(u.petName || '').toLowerCase() === name);
-        if (byName) return byName;
-      }
-    }
-    return null;
+    return this.petAppointments()[0] || null;
   }
 
-  extraUpcoming(): any[] {
-    const list = this.home()?.upcoming || [];
-    return list.slice(1, 4);
+  /**
+   * Upcoming / ongoing visits for the selected pet.
+   * Home is loaded with ?petId=, but API items often omit petId / use a generic
+   * petName like "Visit" — so we attribute unmatched items to the active pet
+   * when they don't clearly belong to another pet in the household.
+   */
+  petAppointments(): any[] {
+    const h = this.home();
+    const list: any[] = h?.upcoming || [];
+    if (!list.length) return [];
+
+    const active = h?.activePet;
+    const petId = String(active?.id || '').trim();
+    const petName = this.normPetName(active?.name);
+    if (!petId && !petName) return list.slice(0, 4);
+
+    const matched = list.filter((u) => this.bookingBelongsToPet(u, petId, petName));
+    if (matched.length) return matched;
+
+    const otherPets: Array<{ id?: string; name?: string }> = (h?.pets || []).filter(
+      (p: any) => String(p?.id || '') !== petId,
+    );
+    const orphans = list.filter((u) => {
+      if (this.bookingBelongsToPet(u, petId, petName)) return true;
+      // Clearly tagged for another pet → skip
+      for (const o of otherPets) {
+        if (this.bookingBelongsToPet(u, String(o.id || ''), this.normPetName(o.name))) {
+          return false;
+        }
+      }
+      // No usable identity (or generic "Visit") → treat as this pet's when home is pet-scoped
+      const bid = String(u?.petId || u?.pet?.id || '').trim();
+      const bName = this.normPetName(u?.petName);
+      if (bid) return false;
+      if (!bName || bName === 'visit' || bName === 'pet' || bName === 'your pet') return true;
+      return false;
+    });
+    return orphans;
+  }
+
+  private bookingBelongsToPet(b: any, petId: string, petName: string): boolean {
+    const bid = String(b?.petId || b?.pet?.id || '').trim();
+    if (petId && bid && bid === petId) return true;
+    if (petId && Array.isArray(b?.petIds) && b.petIds.some((x: any) => String(x) === petId)) {
+      return true;
+    }
+    const bName = this.normPetName(b?.petName);
+    if (petName && bName && bName === petName) return true;
+    return false;
+  }
+
+  private normPetName(name: string | null | undefined): string {
+    return String(name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  }
+
+  /** Prefer the active pet’s name when the booking label is missing/generic. */
+  appointmentPetLabel(b: any): string {
+    const raw = String(b?.petName || '').trim();
+    const n = this.normPetName(raw);
+    if (raw && n && n !== 'visit' && n !== 'pet' && n !== 'your pet' && n !== 'home visit') {
+      return this.displayPetName(raw);
+    }
+    return this.displayPetName(this.home()?.activePet?.name) || 'Home visit';
   }
 
   careBits(): Array<{
@@ -1429,14 +1701,16 @@ export class HomeComponent implements OnInit, AfterViewChecked {
     cta: string;
     secondaryCommands?: any[];
     secondaryCta?: string;
+    cancelCommands?: any[];
+    cancelCta?: string;
   } | null {
     const h = this.home();
     const hs = this.health();
     if (!h?.pets?.length) return null;
 
-    const up = h.upcoming?.[0];
+    const up = this.petAppointments()[0];
     if (up?.id) {
-      const pet = this.displayPetName(up.petName || h.activePet?.name || 'Your pet');
+      const pet = this.displayPetName(h.activePet?.name || up.petName || 'Your pet');
       return {
         title: `${pet}’s home visit`,
         detail: `${up.customerStatus?.label || 'Scheduled'} · ${this.prettyWhen(up.scheduledDate, up.scheduledTime)}`,
@@ -1444,6 +1718,19 @@ export class HomeComponent implements OnInit, AfterViewChecked {
         cta: 'Open visit',
         secondaryCommands: ['/bookings', up.id],
         secondaryCta: 'Modify visit',
+        cancelCommands: ['/bookings', up.id],
+        cancelCta: 'Cancel visit',
+      };
+    }
+
+    // Gate says blocked even when home upcoming list didn't match — don't offer Book
+    if (this.bookingBlocked()) {
+      const pet = this.displayPetName(h.activePet?.name || 'Your pet');
+      return {
+        title: `${pet} already has a visit`,
+        detail: 'Finish or cancel the existing appointment before booking another.',
+        commands: ['/bookings'],
+        cta: 'View appointments',
       };
     }
 
@@ -1585,8 +1872,27 @@ export class HomeComponent implements OnInit, AfterViewChecked {
       const id = petId || this.activePet.get();
       const data = await this.api.home(id);
       this.activePet.syncFromPets(data.pets || [], data.activePet?.id || id);
-      this.home.set(data);
+      const upcoming = filterUpcomingBookings(
+        normalizeBookingsList(data.upcoming || data.bookings || []),
+      ).filter((b) => {
+        const when = b?.scheduledDate || b?.preferredDate;
+        if (!when) return true;
+        const t = new Date(String(when).includes('T') ? when : `${String(when).slice(0, 10)}T12:00:00`).getTime();
+        return Number.isNaN(t) || t >= Date.now() - 4 * 3600 * 1000;
+      });
+      this.home.set({
+        ...data,
+        upcoming,
+      });
       this.petsOverflowDirty = true;
+      // Sync Book CTAs from full bookings list — never clear blocks when home
+      // upcoming is empty/mismatched (that was re-enabling Book incorrectly).
+      void this.bookingGate.refresh().then(() => {
+        const active = this.home()?.activePet;
+        if (this.petAppointments().length > 0) {
+          this.bookingGate.markPetBlocked(active?.id, active?.name);
+        }
+      });
       // Show home immediately (esp. empty-pet onboarding) before secondary fetches
       this.loading.set(false);
 

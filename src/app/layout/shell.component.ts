@@ -4,6 +4,7 @@ import { filter, Subscription } from 'rxjs';
 import { CustomerApiService } from '../services/customer-api.service';
 import { ActivePetService } from '../services/active-pet.service';
 import { AuthService } from '../services/auth.service';
+import { BookingGateService } from '../services/booking-gate.service';
 
 @Component({
   selector: 'app-shell',
@@ -20,9 +21,21 @@ import { AuthService } from '../services/auth.service';
 
           <div class="portal-top__actions">
             @if (!inBookingFlow()) {
-              <a routerLink="/book/new" class="portal-top__cta" [queryParams]="fabPet()" (click)="closeMenu()">
-                Book a visit
-              </a>
+              @if (bookingBlocked()) {
+                <button
+                  type="button"
+                  class="portal-top__cta portal-top__cta--disabled"
+                  disabled
+                  aria-disabled="true"
+                  title="This pet already has an upcoming or ongoing appointment"
+                >
+                  Book a visit
+                </button>
+              } @else {
+                <a routerLink="/book/new" class="portal-top__cta" [queryParams]="fabPet()" (click)="closeMenu()">
+                  Book a visit
+                </a>
+              }
             }
             <a
               routerLink="/notifications"
@@ -128,7 +141,14 @@ import { AuthService } from '../services/auth.service';
           <div class="portal-foot__cols">
             <div>
               <span class="portal-foot__label">Care</span>
-              <a routerLink="/book/new" [queryParams]="fabPet()">Book a visit</a>
+              @if (bookingBlocked()) {
+                <span
+                  class="portal-foot__disabled"
+                  title="This pet already has an upcoming or ongoing appointment"
+                >Book a visit</span>
+              } @else {
+                <a routerLink="/book/new" [queryParams]="fabPet()">Book a visit</a>
+              }
               <a routerLink="/televet">Talk to a vet</a>
               <a routerLink="/intake">Something wrong</a>
             </div>
@@ -149,8 +169,8 @@ import { AuthService } from '../services/auth.service';
         <div class="portal-foot__bottom">
           <p class="portal-foot__services">Veterinary hospital · Emergency · Diagnostics · Pharmacy · Wellness</p>
           <nav class="portal-foot__legal-links" aria-label="Legal">
-            <a href="https://vetonspot.com/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
-            <a href="https://vetonspot.com/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>
+            <a routerLink="/privacy">Privacy Policy</a>
+            <a routerLink="/terms">Terms of Service</a>
             <a routerLink="/support">Contact Us</a>
           </nav>
           <p class="portal-foot__copy">© {{ year }} VetonSpot. All rights reserved.</p>
@@ -158,9 +178,22 @@ import { AuthService } from '../services/auth.service';
       </footer>
 
       @if (!inBookingFlow()) {
-        <a class="fab" routerLink="/book/new" [queryParams]="fabPet()" aria-label="Book a visit">
-          <span class="fab__plus" aria-hidden="true">+</span>
-        </a>
+        @if (bookingBlocked()) {
+          <button
+            type="button"
+            class="fab fab--disabled"
+            disabled
+            aria-disabled="true"
+            aria-label="Booking unavailable — this pet already has a visit"
+            title="This pet already has an upcoming or ongoing appointment"
+          >
+            <span class="fab__plus" aria-hidden="true">+</span>
+          </button>
+        } @else {
+          <a class="fab" routerLink="/book/new" [queryParams]="fabPet()" aria-label="Book a visit">
+            <span class="fab__plus" aria-hidden="true">+</span>
+          </a>
+        }
       }
       <nav class="portal-bottom" aria-label="Mobile">
         <a routerLink="/home" routerLinkActive="on" [routerLinkActiveOptions]="{ exact: true }">Home</a>
@@ -230,10 +263,20 @@ import { AuthService } from '../services/auth.service';
       display: none;
       align-items: center; justify-content: center;
       min-height: 42px; padding: 10px 18px; border-radius: 999px;
+      border: 0;
       background: #0a0a0a; color: #fff; font-weight: 700; text-decoration: none; font-size: 14px;
+      font-family: inherit;
+      cursor: pointer;
       transition: background 0.15s ease, transform 0.15s var(--vos-ease);
     }
     .portal-top__cta:hover { background: #1a1a1a; transform: translateY(-1px); }
+    .portal-top__cta--disabled,
+    .portal-top__cta--disabled:hover {
+      background: #c8c4bc;
+      color: #fff;
+      cursor: not-allowed;
+      transform: none;
+    }
     @media (min-width: 640px) {
       .portal-top__cta { display: inline-flex; }
     }
@@ -396,7 +439,12 @@ import { AuthService } from '../services/auth.service';
       margin: 0 auto;
       padding: 28px var(--vos-gutter) 48px;
       box-sizing: border-box;
-      animation: vos-rise 0.4s var(--vos-ease) both;
+      /* Opacity-only: transform would trap position:fixed modals inside this pane */
+      animation: portal-main-in 0.4s var(--vos-ease) both;
+    }
+    @keyframes portal-main-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
 
     .portal-foot {
@@ -428,6 +476,14 @@ import { AuthService } from '../services/auth.service';
       font-weight: 600; font-size: 14px; margin-bottom: 8px;
     }
     .portal-foot__cols a:hover { color: #FD4A29; }
+    .portal-foot__disabled {
+      display: block;
+      color: rgba(255,255,255,0.35);
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 8px;
+      cursor: not-allowed;
+    }
     .portal-foot__bottom {
       max-width: var(--vos-max); margin: 28px auto 0; padding: 18px var(--vos-gutter) 0;
       border-top: 1px solid rgba(255,255,255,0.12);
@@ -463,8 +519,18 @@ import { AuthService } from '../services/auth.service';
       position: fixed; right: 16px; bottom: calc(72px + env(safe-area-inset-bottom));
       z-index: 45; width: 56px; height: 56px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
+      border: 0;
+      padding: 0;
       background: var(--vos-accent); color: #fff; text-decoration: none;
       box-shadow: 0 10px 28px rgba(253, 74, 41, 0.38);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .fab--disabled,
+    .fab--disabled:hover {
+      background: #c8c4bc;
+      box-shadow: none;
+      cursor: not-allowed;
     }
     .fab__plus { font-size: 28px; font-weight: 500; line-height: 1; margin-top: -2px; }
 
@@ -503,16 +569,29 @@ export class ShellComponent implements OnInit, OnDestroy {
     private readonly activePet: ActivePetService,
     private readonly auth: AuthService,
     private readonly router: Router,
+    private readonly bookingGate: BookingGateService,
   ) {}
+
+  /** Active pet already has an upcoming / ongoing visit. */
+  bookingBlocked() {
+    return this.bookingGate.blockedForActivePet();
+  }
 
   ngOnInit() {
     this.syncBookingFlow(this.router.url);
     void this.refreshUnread();
+    void this.bookingGate.refresh();
     this.navSub = this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
       .subscribe((e) => {
         this.syncBookingFlow(e.urlAfterRedirects);
         void this.refreshUnread();
+        // Don't re-fetch gate on every nav — home sets sticky blocks per pet.
+        // Refresh after leaving the booking funnel so new visits are picked up.
+        const path = (e.urlAfterRedirects || '').split('?')[0];
+        if (path.startsWith('/bookings') || path === '/home') {
+          void this.bookingGate.refresh();
+        }
         this.scrollToTop();
       });
   }

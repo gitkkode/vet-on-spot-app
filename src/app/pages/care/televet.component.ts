@@ -3,10 +3,12 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
+import { VosDatePickerComponent } from '../../shared/vos-date-picker.component';
+import { VosTimePickerComponent } from '../../shared/vos-time-picker.component';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, VosDatePickerComponent, VosTimePickerComponent],
   selector: 'app-televet',
   template: `
     <a routerLink="/home" class="vos-back"><span class="vos-back__chev" aria-hidden="true">‹</span> Home</a>
@@ -91,11 +93,11 @@ import { ActivePetService } from '../../services/active-pet.service';
         <div class="sched">
           <label class="field">
             <span class="label">Preferred date</span>
-            <input type="date" [(ngModel)]="preferredDate" name="preferredDate" />
+            <vos-date-picker name="preferredDate" [(ngModel)]="preferredDate" placeholder="Pick a date" />
           </label>
           <label class="field">
             <span class="label">Preferred time</span>
-            <input type="time" [(ngModel)]="preferredTime" name="preferredTime" />
+            <vos-time-picker name="preferredTime" [(ngModel)]="preferredTime" placeholder="Pick a time" />
           </label>
         </div>
       }

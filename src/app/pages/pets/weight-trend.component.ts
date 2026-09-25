@@ -5,10 +5,12 @@ import { Subscription } from 'rxjs';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { parsePetWeight, petInitial, titleCase } from '../../utils/health-records';
+import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
+import { VosDatePickerComponent } from '../../shared/vos-date-picker.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule],
+  imports: [RouterLink, FormsModule, VosSelectComponent, VosDatePickerComponent],
   selector: 'app-weight-trend',
   template: `
     <a class="vos-back" [routerLink]="['/pets', petId, 'health']">← Health</a>
@@ -91,14 +93,11 @@ import { parsePetWeight, petInitial, titleCase } from '../../utils/health-record
           </label>
           <label>
             Unit
-            <select [(ngModel)]="draftUnit" name="wunit">
-              <option value="kg">kg</option>
-              <option value="lbs">lbs</option>
-            </select>
+            <vos-select name="wunit" [options]="unitOptions" [(ngModel)]="draftUnit" />
           </label>
           <label>
             Date
-            <input type="date" [(ngModel)]="draftDate" name="wdate" />
+            <vos-date-picker name="wdate" [(ngModel)]="draftDate" placeholder="Pick a date" />
           </label>
         </div>
         <button type="button" class="vos-btn" [disabled]="saving()" (click)="add()">
@@ -167,7 +166,7 @@ import { parsePetWeight, petInitial, titleCase } from '../../utils/health-record
       display: flex; flex-direction: column; gap: 4px;
       font-size: 12px; font-weight: 700; color: var(--vos-ink-muted);
     }
-    input, select {
+    input {
       min-height: 44px; border-radius: 12px; border: 1px solid var(--vos-border);
       padding: 8px 10px; font: inherit; color: var(--vos-ink); background: #fff;
     }
@@ -192,6 +191,10 @@ export class WeightTrendComponent implements OnInit, OnDestroy {
   draftValue: number | null = null;
   draftUnit: 'kg' | 'lbs' = 'kg';
   draftDate = new Date().toISOString().slice(0, 10);
+  readonly unitOptions: VosSelectOption[] = [
+    { value: 'kg', label: 'kg' },
+    { value: 'lbs', label: 'lbs' },
+  ];
   private sub?: Subscription;
 
   readonly latest = computed(() => {

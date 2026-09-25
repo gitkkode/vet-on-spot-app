@@ -1,6 +1,8 @@
 import { Component, OnInit, computed, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { BookingGateService } from '../../services/booking-gate.service';
+import { applyPendingEditsToList, normalizeBookingsList } from '../../utils/booking-pending';
 
 type FilterTab = 'upcoming' | 'past' | 'all';
 
@@ -16,6 +18,20 @@ type FilterTab = 'upcoming' | 'past' | 'all';
         <p class="lede">Every home visit in one place — upcoming first, history when you need it.</p>
       </div>
     </header>
+
+    @if (cancelledBanner()) {
+      <div class="toast-ok" role="status">
+        @if (cancelViaRequest()) {
+          Cancel request sent to the care team
+          @if (cancelTicket()) {
+            <span> · Ticket {{ cancelTicket() }}</span>
+          }
+          . This visit is hidden from Upcoming — you can book again anytime.
+        } @else {
+          Appointment cancelled. You can book again anytime.
+        }
+      </div>
+    }
 
     @if (error()) {
       <div class="vos-err">
@@ -80,25 +96,36 @@ type FilterTab = 'upcoming' | 'past' | 'all';
               <h2 class="group__label">{{ group.label }}</h2>
               <div class="list">
                 @for (b of group.items; track b.id) {
-                  <a class="card" [routerLink]="['/bookings', b.id]" [class.card--live]="isLive(b)">
-                    <div class="card__rail" aria-hidden="true">
-                      <span class="avatar" [class.avatar--live]="isLive(b)">{{ petInitial(b.petName) }}</span>
-                    </div>
-                    <div class="card__body">
-                      <div class="card__top">
-                        <strong>{{ displayPetName(b.petName) }}</strong>
-                        <span class="badge" [attr.data-tone]="tone(b)">{{ statusLabel(b) }}</span>
+                  <div class="card" [class.card--live]="isLive(b)">
+                    <a class="card__link" [routerLink]="['/bookings', b.id]">
+                      <div class="card__rail" aria-hidden="true">
+                        <span class="avatar" [class.avatar--live]="isLive(b)">{{ petInitial(b.petName) }}</span>
                       </div>
-                      <p class="when">{{ prettyWhen(b.scheduledDate, b.scheduledTime) }}</p>
-                      <p class="meta">
-                        {{ doctorLine(b) }}
-                        @if (b.reason) {
-                          <span>· {{ prettyReason(b.reason) }}</span>
-                        }
-                      </p>
-                      <span class="card__go" aria-hidden="true">View</span>
+                      <div class="card__body">
+                        <div class="card__top">
+                          <strong>{{ displayPetName(b.petName) }}</strong>
+                          <span class="badge" [attr.data-tone]="tone(b)">{{ statusLabel(b) }}</span>
+                        </div>
+                        <p class="when">{{ prettyWhen(b.scheduledDate, b.scheduledTime) }}</p>
+                        <p class="meta">
+                          {{ doctorLine(b) }}
+                          @if (b.reason) {
+                            <span>· {{ prettyReason(b.reason) }}</span>
+                          }
+                        </p>
+                      </div>
+                    </a>
+                    <div class="card__acts">
+                      <a [routerLink]="['/bookings', b.id]">Open</a>
+                      @if (canCancel(b)) {
+                        <a
+                          class="card__cancel"
+                          [routerLink]="['/bookings', b.id]"
+                          [queryParams]="{ cancel: '1' }"
+                        >Cancel</a>
+                      }
                     </div>
-                  </a>
+                  </div>
                 }
               </div>
             </section>
@@ -237,6 +264,15 @@ type FilterTab = 'upcoming' | 'past' | 'all';
       color: var(--vos-ink-muted);
     }
     .quiet a { font-weight: 700; color: #FD4A29; }
+    .toast-ok {
+      margin: 0 0 16px;
+      padding: 12px 16px;
+      border-radius: 14px;
+      background: #e8f8ef;
+      color: #0f5132;
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
 
     .group { margin-bottom: 22px; animation: rise 0.4s ease both; }
     .group__label {
@@ -249,7 +285,8 @@ type FilterTab = 'upcoming' | 'past' | 'all';
 
     .card {
       position: relative;
-      display: grid; grid-template-columns: 52px 1fr;
+      display: flex;
+      flex-direction: column;
       text-decoration: none; color: inherit;
       border-radius: 20px;
       background: #fffef9;
@@ -262,6 +299,38 @@ type FilterTab = 'upcoming' | 'past' | 'all';
       transform: translateY(-2px);
       border-color: rgba(253, 74, 41, 0.3);
       box-shadow: 0 16px 36px rgba(10, 10, 10, 0.08);
+    }
+    .card__link {
+      display: grid;
+      grid-template-columns: 52px 1fr;
+      text-decoration: none;
+      color: inherit;
+      padding: 0;
+      min-width: 0;
+    }
+    .card__acts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0 14px 14px 66px;
+    }
+    .card__acts a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-decoration: none;
+      background: #0a0a0a;
+      color: #fff;
+    }
+    .card__acts .card__cancel {
+      background: transparent;
+      color: #B42318;
+      border: 1px solid rgba(180, 35, 24, 0.35);
     }
     .card--live {
       border-color: rgba(253, 74, 41, 0.35);
@@ -338,6 +407,9 @@ export class BookingsListComponent implements OnInit {
   readonly loading = signal(true);
   readonly error = signal('');
   readonly tab = signal<FilterTab>('upcoming');
+  readonly cancelledBanner = signal(false);
+  readonly cancelViaRequest = signal(false);
+  readonly cancelTicket = signal('');
 
   readonly upcoming = computed(() => this.items().filter((b) => this.isUpcoming(b)));
   readonly past = computed(() => this.items().filter((b) => !this.isUpcoming(b)));
@@ -350,19 +422,36 @@ export class BookingsListComponent implements OnInit {
   readonly nextUp = computed(() => this.upcoming()[0] || null);
   readonly grouped = computed(() => this.groupByMonth(this.filtered()));
 
-  constructor(private api: CustomerApiService) {}
+  constructor(
+    private api: CustomerApiService,
+    private route: ActivatedRoute,
+    private bookingGate: BookingGateService,
+  ) {}
 
   ngOnInit() {
+    const q = this.route.snapshot.queryParamMap;
+    this.cancelledBanner.set(q.get('cancelled') === '1');
+    this.cancelViaRequest.set(q.get('via') === 'request');
+    this.cancelTicket.set(String(q.get('ticket') || '').trim());
     void this.load();
+    void this.bookingGate.refresh();
+  }
+
+  canCancel(b: any): boolean {
+    if (!this.isUpcoming(b)) return false;
+    const st = String(b?.customerStatus?.code || b?.customerStatus?.label || b?.status || '').toLowerCase();
+    return !/(complet|cancel|done|no.?show|closed|declined|missed)/.test(st);
   }
 
   async load() {
     this.loading.set(true);
     this.error.set('');
     try {
-      const list = (await this.api.bookings()) || [];
+      const list = applyPendingEditsToList(normalizeBookingsList(await this.api.bookings()));
       this.items.set(this.sortBookings(list));
-      if (!this.upcoming().length && this.past().length) this.tab.set('past');
+      // Prefer upcoming when any exist (including locally rescheduled slots)
+      if (this.upcoming().length) this.tab.set('upcoming');
+      else if (this.past().length) this.tab.set('past');
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Couldn’t load appointments');
     } finally {
