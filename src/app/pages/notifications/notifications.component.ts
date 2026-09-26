@@ -1,6 +1,7 @@
 import { Component, OnInit, computed, signal } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 type FilterTab = 'all' | 'unread' | 'urgent';
 
@@ -8,10 +9,10 @@ const DISMISS_KEY = 'vos.notifications.dismissed';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-notifications',
   template: `
-    <a [routerLink]="backLink" class="vos-back"><span class="vos-back__chev" aria-hidden="true">‹</span> {{ backLabel }}</a>
+    <vos-back-button />
 
     <header class="head">
       <div>
@@ -181,8 +182,7 @@ const DISMISS_KEY = 'vos.notifications.dismissed';
   `],
 })
 export class NotificationsComponent implements OnInit {
-  backLink: any[] = ['/home'];
-  backLabel = 'Home';
+
   readonly rawItems = signal<any[]>([]);
   readonly filter = signal<FilterTab>('all');
   readonly loading = signal(true);
@@ -214,21 +214,9 @@ export class NotificationsComponent implements OnInit {
   constructor(
     private api: CustomerApiService,
     private router: Router,
-    private route: ActivatedRoute,
   ) {}
 
   ngOnInit() {
-    const from = this.route.snapshot.queryParamMap.get('from');
-    if (from === 'profile') {
-      this.backLink = ['/profile'];
-      this.backLabel = 'Profile';
-    } else if (from === 'settings') {
-      this.backLink = ['/settings'];
-      this.backLabel = 'Settings';
-    } else {
-      this.backLink = ['/home'];
-      this.backLabel = 'Home';
-    }
     void this.load();
   }
 

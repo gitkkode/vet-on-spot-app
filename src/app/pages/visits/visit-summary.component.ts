@@ -2,13 +2,15 @@ import { Component, OnInit, signal } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, SlicePipe],
+  imports: [RouterLink, SlicePipe, VosBackButtonComponent, VosTitleCasePipe],
   selector: 'app-visit-summary',
   template: `
-    <a routerLink="/bookings" class="vos-back">← Appointments</a>
+    <vos-back-button [fallback]="'/bookings'" fallbackLabel="Appointments" />
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" (click)="load()">Retry</button></div>
     }
@@ -21,7 +23,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
       } @else {
         <div class="banner progress">Visit in progress</div>
       }
-      <h1 class="vos-pet-name">{{ v().petName || v().pet?.name }}</h1>
+      <h1 class="vos-pet-name">{{ (v().petName || v().pet?.name) | vosTitleCase:'Your pet' }}</h1>
       <p class="sub">{{ v().displayId }} · Dr. {{ v().doctorName }}</p>
       <div class="vos-card">
         <p><strong>Date</strong> {{ (v().completedAt || v().startedAt || '') | slice:0:10 }}</p>

@@ -5,13 +5,15 @@ import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { VosDatePickerComponent } from '../../shared/vos-date-picker.component';
 import { VosTimePickerComponent } from '../../shared/vos-time-picker.component';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { displayPetName, petInitial as petInitialFn } from '../../utils/health-records';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, RouterLink, VosDatePickerComponent, VosTimePickerComponent],
+  imports: [FormsModule, RouterLink, VosDatePickerComponent, VosTimePickerComponent, VosBackButtonComponent],
   selector: 'app-televet',
   template: `
-    <a routerLink="/home" class="vos-back"><span class="vos-back__chev" aria-hidden="true">‹</span> Home</a>
+    <vos-back-button />
     <header class="head">
       <p class="eyebrow">Remote care</p>
       <h1>Talk to a Vet</h1>
@@ -361,16 +363,11 @@ export class TelevetComponent implements OnInit {
   }
 
   displayName(name: string | null | undefined) {
-    const raw = String(name || '').trim();
-    if (!raw) return '';
-    return raw
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
+    return displayPetName(name, '');
   }
 
   petInitial(name: string | null | undefined) {
-    return (String(name || '?').trim().charAt(0) || '?').toUpperCase();
+    return petInitialFn(name);
   }
 
   onReasonChange() {

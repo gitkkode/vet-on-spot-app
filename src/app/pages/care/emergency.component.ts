@@ -3,6 +3,8 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { displayPetName, petInitial as petInitialFn } from '../../utils/health-records';
 
 const CATEGORIES = [
   'Breathing difficulty',
@@ -30,10 +32,10 @@ const QUICK_CHECKS: { key: QuickKey; label: string }[] = [
 
 @Component({
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, VosBackButtonComponent],
   selector: 'app-emergency',
   template: `
-    <a routerLink="/home" class="vos-back"><span class="vos-back__chev" aria-hidden="true">‹</span> Home</a>
+    <vos-back-button />
     <header class="head">
       <p class="eyebrow">Urgent care</p>
       <h1>Something is wrong</h1>
@@ -162,7 +164,7 @@ const QUICK_CHECKS: { key: QuickKey; label: string }[] = [
         </section>
 
         <div class="vos-warn disclaimer">
-          <label class="ack">
+          <label class="vos-check ack">
             <input type="checkbox" [(ngModel)]="safetyAck" name="safetyAck" />
             <span>
               If your pet needs immediate hospital care and VetonSpot cannot reach you in time,
@@ -324,10 +326,8 @@ const QUICK_CHECKS: { key: QuickKey; label: string }[] = [
     }
 
     .disclaimer { margin: 0 0 16px; }
-    .ack {
-      display: flex; gap: 10px; align-items: flex-start; font-size: 0.92rem; cursor: pointer;
-    }
-    .ack input { margin-top: 4px; flex-shrink: 0; }
+    .ack { margin: 0; align-items: flex-start; font-size: 0.92rem; }
+    .ack span { font-weight: 500; line-height: 1.45; }
 
     .nav-row {
       display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end;
@@ -427,16 +427,11 @@ export class EmergencyComponent implements OnInit {
   }
 
   displayName(name: string | null | undefined) {
-    const raw = String(name || '').trim();
-    if (!raw) return '';
-    return raw
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
+    return displayPetName(name, '');
   }
 
   petInitial(name: string | null | undefined) {
-    return (String(name || '?').trim().charAt(0) || '?').toUpperCase();
+    return petInitialFn(name);
   }
 
   selectedPetName() {

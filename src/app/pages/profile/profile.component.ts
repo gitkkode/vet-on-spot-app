@@ -3,78 +3,152 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, VosBackButtonComponent, VosTitleCasePipe],
   selector: 'app-profile',
   template: `
     <div class="wrap">
+      <vos-back-button />
+
+      <header class="head">
+        <h1>Profile</h1>
+        <p class="lede">Manage your household details and account shortcuts.</p>
+      </header>
+
       @if (error()) {
         <div class="vos-err">{{ error() }}</div>
       }
       @if (ok()) {
         <div class="vos-ok">{{ ok() }}</div>
       }
+
       @if (loading()) {
-        <div class="vos-skel"></div>
-        <div class="vos-skel"></div>
+        <div class="layout">
+          <div class="vos-skel panel-skel"></div>
+          <div class="vos-skel panel-skel"></div>
+        </div>
       } @else {
-        <header class="profile-hero">
-          <div class="profile-hero__avatar" aria-hidden="true">{{ initials() }}</div>
-          <div>
-            <p class="profile-hero__eyebrow">Your household</p>
-            <h1>{{ fullName || 'Pet parent' }}</h1>
-            @if (email) {
-              <p class="profile-hero__email">{{ email }}</p>
-            }
-            <p class="profile-hero__status">{{ petStatus() }}</p>
-          </div>
-        </header>
+        <div class="layout">
+          <aside class="panel panel--side" aria-label="Account overview">
+            <div class="identity">
+              <div class="identity__avatar" aria-hidden="true">{{ initials() }}</div>
+              <p class="identity__eyebrow">Your household</p>
+              <h2>{{ fullName | vosTitleCase:'Pet parent' }}</h2>
+              @if (email) {
+                <p class="identity__email">{{ email }}</p>
+              }
+              <p class="identity__status">{{ petStatus() }}</p>
+            </div>
 
-        <form class="profile-form" (ngSubmit)="save()">
-          <label class="vos-field">Full name<input [(ngModel)]="fullName" name="fullName" /></label>
-          <label class="vos-field">Mobile<input [(ngModel)]="mobile" name="mobile" /></label>
-          <label class="vos-field">Email<input [(ngModel)]="email" name="email" /></label>
-          <label class="vos-field"
-            >Address<textarea [(ngModel)]="address" name="address" rows="3"></textarea
-          ></label>
-          <label class="vos-field"
-            >Emergency contact<input [(ngModel)]="emergencyContact" name="emergencyContact"
-          /></label>
-          <button type="submit" class="vos-btn" [disabled]="saving()">
-            {{ saving() ? 'Saving…' : 'Save profile' }}
-          </button>
-        </form>
+            <nav class="links" aria-label="Account">
+              <a routerLink="/pets" [queryParams]="{ from: 'profile' }">Your pets</a>
+              <a routerLink="/settings" [queryParams]="{ from: 'profile' }">Settings</a>
+              <a routerLink="/notifications" [queryParams]="{ from: 'profile' }">Notifications</a>
+              <a routerLink="/support" [queryParams]="{ from: 'profile' }">Support</a>
+              <a routerLink="/addresses" [queryParams]="{ from: 'profile' }">Saved addresses</a>
+            </nav>
 
-        <nav class="links" aria-label="Account">
-          <a routerLink="/pets" [queryParams]="{ from: 'profile' }">Your pets</a>
-          <a routerLink="/settings" [queryParams]="{ from: 'profile' }">Settings</a>
-          <a routerLink="/notifications" [queryParams]="{ from: 'profile' }">Notifications</a>
-          <a routerLink="/support" [queryParams]="{ from: 'profile' }">Support</a>
-          <a routerLink="/addresses" [queryParams]="{ from: 'profile' }">Saved addresses</a>
-        </nav>
+            <button type="button" class="vos-btn vos-btn-ghost logout" (click)="logout()">Log out</button>
+          </aside>
 
-        <button type="button" class="vos-btn vos-btn-ghost logout" (click)="logout()">Log out</button>
+          <section class="panel panel--form" aria-labelledby="profile-edit-title">
+            <header class="panel__head">
+              <h2 id="profile-edit-title">Edit details</h2>
+              <p>Keep your contact info current so the care team can reach you.</p>
+            </header>
+
+            <form class="panel__body form" (ngSubmit)="save()">
+              <div class="form__grid">
+                <label class="vos-field"
+                  >Full name<input [(ngModel)]="fullName" name="fullName" autocomplete="name"
+                /></label>
+                <label class="vos-field"
+                  >Mobile<input [(ngModel)]="mobile" name="mobile" type="tel" autocomplete="tel"
+                /></label>
+                <label class="vos-field field--full"
+                  >Email<input [(ngModel)]="email" name="email" type="email" autocomplete="email"
+                /></label>
+                <label class="vos-field field--full"
+                  >Address<textarea [(ngModel)]="address" name="address" rows="3" autocomplete="street-address"></textarea
+                ></label>
+                <label class="vos-field field--full"
+                  >Emergency contact<input
+                    [(ngModel)]="emergencyContact"
+                    name="emergencyContact"
+                    autocomplete="tel"
+                /></label>
+              </div>
+              <div class="form__actions">
+                <button type="submit" class="vos-btn" [disabled]="saving()">
+                  {{ saving() ? 'Saving…' : 'Save profile' }}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
       }
     </div>
   `,
   styles: [`
+    :host { display: block; width: 100%; }
+
     .wrap {
-      max-width: 720px;
-      margin: 0 auto;
+      width: 100%;
+      max-width: none;
+      margin: 0;
     }
-    .profile-hero {
+
+    .head { margin: 2px 0 18px; }
+    h1 {
+      margin: 0;
+      font-family: var(--vos-display);
+      font-size: clamp(1.65rem, 3vw, 2.15rem);
+      letter-spacing: -0.03em;
+    }
+    .lede {
+      margin: 6px 0 0;
+      color: var(--vos-ink-muted);
+      max-width: 48ch;
+      line-height: 1.45;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.3fr);
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .panel {
       display: flex;
-      gap: 16px;
-      align-items: center;
-      margin-bottom: 22px;
-      padding: 4px 2px 8px;
+      flex-direction: column;
+      min-width: 0;
+      border: 1px solid var(--vos-border);
+      border-radius: 20px;
+      background: #fff;
+      box-shadow: 0 10px 28px rgba(10, 10, 10, 0.04);
+      overflow: hidden;
     }
-    .profile-hero__avatar {
-      flex-shrink: 0;
-      width: 72px;
-      height: 72px;
+
+    .panel--side {
+      padding: 22px 20px 18px;
+      background: linear-gradient(180deg, #fffef9 0%, #fff 42%);
+    }
+
+    .identity {
+      text-align: center;
+      padding: 4px 4px 18px;
+      border-bottom: 1px solid var(--vos-border);
+      margin-bottom: 14px;
+    }
+    .identity__avatar {
+      width: 76px;
+      height: 76px;
+      margin: 0 auto 12px;
       border-radius: 50%;
       display: flex;
       align-items: center;
@@ -83,10 +157,10 @@ import { CustomerApiService } from '../../services/customer-api.service';
       color: var(--vos-brand);
       font-family: var(--vos-display);
       font-weight: 700;
-      font-size: 1.5rem;
+      font-size: 1.55rem;
       box-shadow: 0 8px 24px rgba(20, 16, 12, 0.08);
     }
-    .profile-hero__eyebrow {
+    .identity__eyebrow {
       margin: 0 0 4px;
       font-family: var(--vos-mono);
       font-size: 10px;
@@ -95,37 +169,124 @@ import { CustomerApiService } from '../../services/customer-api.service';
       color: var(--vos-ink-muted);
       font-weight: 600;
     }
-    h1 {
+    .identity h2 {
       margin: 0;
       font-family: var(--vos-display);
-      font-size: 1.45rem;
-      letter-spacing: -0.03em;
-      color: var(--vos-ink);
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
     }
-    .profile-hero__email {
-      margin: 4px 0 0;
+    .identity__email {
+      margin: 6px 0 0;
       color: var(--vos-ink-muted);
       font-size: 0.92rem;
+      word-break: break-word;
     }
-    .profile-hero__status {
-      margin: 8px 0 0;
-      font-weight: 600;
+    .identity__status {
+      margin: 10px 0 0;
+      font-weight: 700;
       color: var(--vos-brand);
       font-size: 0.92rem;
     }
-    .profile-form .vos-btn { margin-top: 12px; width: auto; }
-    .links { margin: 22px 0 12px; display: grid; gap: 8px; }
+
+    .links {
+      display: grid;
+      gap: 8px;
+      flex: 1 1 auto;
+    }
     .links a {
       display: block;
       padding: 12px 14px;
-      background: var(--vos-surface);
-      border-radius: var(--vos-radius-sm);
+      background: #fff;
+      border-radius: 12px;
       border: 1px solid var(--vos-border);
       text-decoration: none;
       color: var(--vos-ink);
       font-weight: 600;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
-    .logout { margin-top: 4px; }
+    .links a:hover {
+      border-color: rgba(253, 74, 41, 0.35);
+      box-shadow: 0 8px 18px rgba(10, 10, 10, 0.05);
+    }
+
+    .logout {
+      margin-top: 14px;
+      width: 100%;
+    }
+
+    .panel__head {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--vos-border);
+      background: #faf8f4;
+    }
+    .panel__head h2 {
+      margin: 0;
+      font-family: var(--vos-display);
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+    .panel__head p {
+      margin: 6px 0 0;
+      color: var(--vos-ink-muted);
+      font-size: 0.9rem;
+      line-height: 1.35;
+    }
+
+    .panel__body {
+      padding: 18px 20px 20px;
+    }
+
+    .form { margin: 0; }
+    .form__grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px 14px;
+    }
+    .field--full { grid-column: 1 / -1; }
+    .form__actions {
+      margin-top: 10px;
+      display: flex;
+      justify-content: flex-start;
+    }
+    .form__actions .vos-btn { min-width: 148px; }
+
+    .panel-skel {
+      min-height: 360px;
+      border-radius: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .form__grid {
+        grid-template-columns: 1fr;
+      }
+      .identity {
+        text-align: left;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        grid-template-areas:
+          'avatar eyebrow'
+          'avatar name'
+          'avatar email'
+          'status status';
+        column-gap: 14px;
+        align-items: center;
+      }
+      .identity__avatar {
+        grid-area: avatar;
+        margin: 0;
+        width: 64px;
+        height: 64px;
+        font-size: 1.35rem;
+      }
+      .identity__eyebrow { grid-area: eyebrow; margin: 0; }
+      .identity h2 { grid-area: name; }
+      .identity__email { grid-area: email; margin-top: 2px; }
+      .identity__status { grid-area: status; margin-top: 10px; }
+    }
   `],
 })
 export class ProfileComponent implements OnInit {
@@ -197,7 +358,6 @@ export class ProfileComponent implements OnInit {
         address: this.address,
         emergencyContact: this.emergencyContact,
       });
-      // Keep Saved addresses in sync with the profile address
       const addr = String(this.address || '').trim();
       if (addr) {
         try {

@@ -8,13 +8,14 @@ import {
   remindersFromTimeline,
   titleCase,
 } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-reminders',
   template: `
-    <a class="vos-back" [routerLink]="petId ? ['/pets', petId, 'health'] : '/health'">← Health</a>
+    <vos-back-button [fallback]="petId ? ['/pets', petId, 'health'] : '/health'" fallbackLabel="Health" />
 
     <header class="head">
       @if (petName()) {

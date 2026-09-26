@@ -260,7 +260,7 @@ import { AuthService } from '../../services/auth.service';
     /* Full-bleed hero with contained grid */
     .hero {
       position: relative;
-      padding: clamp(48px, 8vh, 88px) 0 clamp(64px, 10vh, 100px);
+      padding: clamp(36px, 5vh, 56px) 0 clamp(40px, 5.5vh, 64px);
       background:
         radial-gradient(ellipse 55% 70% at 100% 0%, rgba(253, 74, 41, 0.14) 0%, transparent 55%),
         radial-gradient(ellipse 40% 50% at 0% 100%, rgba(253, 74, 41, 0.07) 0%, transparent 50%),
@@ -282,7 +282,7 @@ import { AuthService } from '../../services/auth.service';
     .hero__brand {
       margin: 0 0 14px;
       font-family: var(--vos-display);
-      font-size: clamp(1.75rem, 3.5vw, 2.35rem);
+      font-size: clamp(1.85rem, 3.6vw, 2.5rem);
       font-weight: 700;
       letter-spacing: -0.05em;
       line-height: 1;
@@ -290,7 +290,7 @@ import { AuthService } from '../../services/auth.service';
     .hero h1 {
       margin: 0 0 16px;
       font-family: var(--vos-display);
-      font-size: clamp(2.35rem, 5.5vw, 3.75rem);
+      font-size: clamp(2.55rem, 5.8vw, 4rem);
       letter-spacing: -0.045em;
       line-height: 1.02;
       max-width: 11ch;
@@ -298,7 +298,7 @@ import { AuthService } from '../../services/auth.service';
     .hero__lede {
       margin: 0 0 28px;
       max-width: 40ch;
-      font-size: clamp(1.05rem, 1.6vw, 1.2rem);
+      font-size: clamp(1.1rem, 1.7vw, 1.28rem);
       line-height: 1.45;
       color: #5C5A55;
     }
@@ -342,13 +342,14 @@ import { AuthService } from '../../services/auth.service';
     .hero__stage h2 {
       margin: 0 0 8px;
       font-family: var(--vos-display);
-      font-size: clamp(1.45rem, 2.5vw, 1.85rem);
+      font-size: clamp(1.55rem, 2.6vw, 2rem);
       letter-spacing: -0.03em;
     }
     .hero__stage-sub {
       margin: 0 0 16px;
       opacity: 0.88;
       line-height: 1.4;
+      font-size: 1.02rem;
       max-width: 36ch;
     }
     .hero__stage-list {
@@ -375,18 +376,18 @@ import { AuthService } from '../../services/auth.service';
     }
 
     .block {
-      padding: var(--vos-section) 0;
+      padding: clamp(40px, 5vw, 64px) 0;
     }
     .block--tint {
       background: #F5F4F1;
       border-top: 1px solid #E8E4DC;
       border-bottom: 1px solid #E8E4DC;
     }
-    .block__head { margin-bottom: 28px; max-width: 28ch; }
+    .block__head { margin-bottom: 20px; max-width: 32ch; }
     .eyebrow {
-      margin: 0 0 10px;
+      margin: 0 0 8px;
       font-family: var(--vos-mono);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.14em;
       text-transform: uppercase;
@@ -395,7 +396,7 @@ import { AuthService } from '../../services/auth.service';
     .block__head h2 {
       margin: 0;
       font-family: var(--vos-display);
-      font-size: clamp(1.7rem, 3vw, 2.25rem);
+      font-size: clamp(1.9rem, 3.2vw, 2.5rem);
       letter-spacing: -0.04em;
       line-height: 1.1;
     }
@@ -413,29 +414,29 @@ import { AuthService } from '../../services/auth.service';
     .steps li {
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      padding: 24px 22px;
+      gap: 8px;
+      padding: 22px 22px 24px;
       border-radius: 22px;
       background: #fff;
       border: 1px solid #E8E4DC;
       box-shadow: 0 8px 24px rgba(10, 10, 10, 0.04);
-      min-height: 180px;
     }
     .steps__num {
       font-family: var(--vos-mono);
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 700;
       letter-spacing: 0.1em;
       color: #FD4A29;
     }
     .steps strong {
       font-family: var(--vos-display);
-      font-size: 1.25rem;
+      font-size: 1.4rem;
       letter-spacing: -0.02em;
     }
     .steps span:last-child {
       color: #5C5A55;
       line-height: 1.45;
+      font-size: 1.05rem;
     }
 
     .paths {
@@ -449,8 +450,7 @@ import { AuthService } from '../../services/auth.service';
       display: flex;
       flex-direction: column;
       gap: 8px;
-      padding: 26px 24px;
-      min-height: 180px;
+      padding: 22px 22px 24px;
       border-radius: 22px;
       background: #fff;
       border: 1px solid #E8E4DC;
@@ -467,7 +467,7 @@ import { AuthService } from '../../services/auth.service';
     .path--urgent { border-color: rgba(180, 35, 24, 0.28); }
     .path__tag {
       font-family: var(--vos-mono);
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.12em;
       text-transform: uppercase;
@@ -475,21 +475,21 @@ import { AuthService } from '../../services/auth.service';
     }
     .path strong {
       font-family: var(--vos-display);
-      font-size: 1.35rem;
+      font-size: 1.45rem;
       letter-spacing: -0.02em;
     }
     .path > span:last-child {
       color: #5C5A55;
       line-height: 1.4;
-      margin-top: auto;
+      font-size: 1.05rem;
     }
 
     .trust {
       margin: 0;
-      padding: 28px clamp(20px, 4vw, 56px);
+      padding: 20px clamp(20px, 4vw, 56px);
       text-align: center;
       font-family: var(--vos-mono);
-      font-size: 11px;
+      font-size: 12px;
       letter-spacing: 0.14em;
       text-transform: uppercase;
       color: #8A8680;

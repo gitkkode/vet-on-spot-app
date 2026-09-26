@@ -3,15 +3,18 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
+import { displayPetName, petInitial as petInitialFn } from '../../utils/health-records';
 
 type Step = 'start' | 'draft' | 'questions' | 'summary' | 'recommend';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, VosBackButtonComponent, VosTitleCasePipe],
   selector: 'app-smart-intake',
   template: `
-    <a routerLink="/home" class="vos-back">← Home</a>
+    <vos-back-button />
     <header class="head">
       <p class="eyebrow">Smart intake</p>
       <h1>Something is wrong</h1>
@@ -132,9 +135,9 @@ type Step = 'start' | 'draft' | 'questions' | 'summary' | 'recommend';
         <label class="vos-field">Observations
           <textarea [(ngModel)]="draft.observationsText" name="observations" rows="2"></textarea>
         </label>
-        <label class="check">
+        <label class="vos-check">
           <input type="checkbox" [(ngModel)]="draft.emergencyFlag" name="emergencyFlag" />
-          This may need urgent attention
+          <span>This may need urgent attention</span>
         </label>
         <button type="button" class="vos-btn" [disabled]="saving()" (click)="saveDraft()">
           {{ saving() ? 'Saving…' : 'Save & continue' }}
@@ -195,7 +198,7 @@ type Step = 'start' | 'draft' | 'questions' | 'summary' | 'recommend';
         <p class="vos-muted tip">Review before we suggest next steps. This is not a diagnosis.</p>
         <dl class="sum">
           <dt>Pet</dt>
-          <dd>{{ s.petName || '—' }}</dd>
+          <dd>{{ s.petName | vosTitleCase:'—' }}</dd>
           <dt>You described</dt>
           <dd>{{ s.freeText || '—' }}</dd>
           <dt>Concern</dt>
@@ -401,10 +404,7 @@ type Step = 'start' | 'draft' | 'questions' | 'summary' | 'recommend';
     .choice.on { border-color: var(--vos-brand); background: var(--vos-brand-soft); }
     .tip { font-size: 0.9rem; margin: 0 0 12px; }
     .row-head { display: flex; justify-content: space-between; align-items: center; }
-    .check {
-      display: flex; align-items: center; gap: 8px; margin: 12px 0 16px;
-      font-weight: 600; font-size: 0.95rem;
-    }
+    .vos-check { margin: 12px 0 16px; }
     .q { margin-bottom: 14px; padding-top: 8px; border-top: 1px solid var(--vos-border); }
     .q:first-of-type { border-top: 0; padding-top: 0; }
     .q-prompt { margin: 0 0 8px; font-weight: 600; }
@@ -499,16 +499,11 @@ export class SmartIntakeComponent implements OnInit {
   }
 
   displayName(name: string | null | undefined) {
-    const raw = String(name || '').trim();
-    if (!raw) return '';
-    return raw
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
+    return displayPetName(name, '');
   }
 
   petInitial(name: string | null | undefined) {
-    return (String(name || '?').trim().charAt(0) || '?').toUpperCase();
+    return petInitialFn(name);
   }
 
   selectedPetName() {
@@ -572,7 +567,7 @@ export class SmartIntakeComponent implements OnInit {
   async loadPets(preferredId?: string | null) {
     try {
       const list = await this.api.pets();
-      this.pets.set(Array.isArray(list) ? list : list?.pets || []);
+      this.pets.set(Array.isArray(list) ? list : []);
       const resolved = this.activePet.syncFromPets(this.pets(), preferredId || this.petId);
       if (resolved) this.petId = resolved;
     } catch (e: any) {

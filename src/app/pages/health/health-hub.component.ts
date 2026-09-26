@@ -2,12 +2,15 @@ import { Component, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
+import { titleCase } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-health-hub',
   template: `
+    <vos-back-button />
     <h1>Pet Health</h1>
     <p class="vos-muted">Ongoing care records for your active pet — no scores, just what’s on file.</p>
     @if (error()) {
@@ -143,14 +146,7 @@ export class HealthHubComponent implements OnInit {
     void this.load();
   }
 
-  titleCase(v: string | null | undefined): string {
-    const raw = String(v || '').trim();
-    if (!raw) return '';
-    return raw
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
-  }
+  titleCase = titleCase;
 
   hasCareBits(s: any): boolean {
     const c = s?.careStatus;

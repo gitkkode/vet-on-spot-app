@@ -1,13 +1,15 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent, VosTitleCasePipe],
   selector: 'app-emergency-status',
   template: `
-    <a routerLink="/emergency" class="vos-back">← Emergency</a>
+    <vos-back-button [fallback]="'/emergency'" fallbackLabel="Urgent care" />
     <h1>Emergency status</h1>
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -22,7 +24,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
       }
 
       <div class="vos-card">
-        <p><strong>{{ c.petName || 'Pet' }}</strong></p>
+        <p><strong>{{ c.petName | vosTitleCase:'Pet' }}</strong></p>
         <p>{{ c.category }}</p>
         <p class="vos-muted">{{ c.reason }}</p>
         @if (c.location) { <p><strong>Location</strong> {{ c.location }}</p> }

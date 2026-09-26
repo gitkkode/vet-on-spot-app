@@ -224,3 +224,75 @@ export function applyPendingEditsToList(list: any[]): any[] {
 export function filterUpcomingBookings(list: any[]): any[] {
   return applyPendingEditsToList(list).filter((b) => !b?._superseded);
 }
+
+/** Booking is not completed / cancelled / closed. */
+export function isActiveBookingStatus(b: any): boolean {
+  const st = String(b?.status || b?.customerStatus?.code || b?.customerStatus?.label || '').toLowerCase();
+  if (!st) return true;
+  return !/(complet|cancel|done|no.?show|closed|declined|missed|void)/.test(st);
+}
+
+/**
+ * True for upcoming or recently-started slots (ongoing today).
+ * Past dates (older than ~4h) do not block new bookings.
+ */
+export function isUpcomingOrOngoingSlot(b: any): boolean {
+  const when = b?.scheduledDate || b?.preferredDate;
+  if (!when) return true;
+  const raw = String(when);
+  const t = new Date(raw.includes('T') ? raw : `${raw.slice(0, 10)}T12:00:00`).getTime();
+  return Number.isNaN(t) || t >= Date.now() - 4 * 3600 * 1000;
+}
+
+/** Pet ids attached to a booking (single + multi-pet). */
+export function bookingPetIds(b: any): string[] {
+  const out: string[] = [];
+  const single = String(b?.petId || b?.pet?.id || '').trim();
+  if (single) out.push(single);
+  if (Array.isArray(b?.petIds)) {
+    for (const x of b.petIds) {
+      const id = String(x || '').trim();
+      if (id && !out.includes(id)) out.push(id);
+    }
+  }
+  return out;
+}
+
+export function normalizePetName(name: string | null | undefined): string {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+export function isGenericPetName(name: string): boolean {
+  const n = normalizePetName(name);
+  return !n || n === 'visit' || n === 'pet' || n === 'your pet' || n === 'home visit';
+}
+
+/** Bookings that should block a new visit for a pet. */
+export function blockingBookings(raw: unknown): any[] {
+  return filterUpcomingBookings(normalizeBookingsList(raw)).filter(
+    (b) => isActiveBookingStatus(b) && isUpcomingOrOngoingSlot(b),
+  );
+}
+
+/**
+ * Whether a booking blocks this pet.
+ * Prefer petId / petIds. Fall back to name only when the booking has no pet id.
+ */
+export function bookingBlocksPet(
+  b: any,
+  petId?: string | null,
+  petName?: string | null,
+): boolean {
+  const id = String(petId || '').trim();
+  const ids = bookingPetIds(b);
+  if (id && ids.includes(id)) return true;
+  if (ids.length) return false; // booking is tied to other pet(s) only
+  const name = normalizePetName(petName);
+  const bName = normalizePetName(b?.petName || b?.pet?.name);
+  if (!name || !bName || isGenericPetName(bName)) return false;
+  return name === bName;
+}
+

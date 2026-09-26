@@ -14,5 +14,7 @@ export const environment = {
   msg91: {
     widgetId: '36696c676a43333736353632',
     tokenAuth: '570388T8ekXxOq6aa4fc51P1',
+    /** SMS retry channel for custom MSG91 widget config */
+    retryChannel: '11',
   },
 };

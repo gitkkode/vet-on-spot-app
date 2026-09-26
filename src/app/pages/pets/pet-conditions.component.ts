@@ -8,13 +8,14 @@ import {
   petInitial,
   titleCase,
 } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-pet-conditions',
   template: `
-    <a class="vos-back" [routerLink]="['/pets', petId, 'health']">← Health</a>
+    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
 
     <header class="head">
       <div class="who" aria-hidden="true">

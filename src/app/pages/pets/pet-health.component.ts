@@ -2,13 +2,15 @@ import { Component, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent, VosTitleCasePipe],
   selector: 'app-pet-health',
   template: `
-    <a class="vos-back" [routerLink]="['/pets', petId]">← Pet</a>
+    <vos-back-button [fallback]="['/pets', petId]" fallbackLabel="Pet" />
     <h1>Pet Health</h1>
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -16,7 +18,7 @@ import { ActivePetService } from '../../services/active-pet.service';
     @if (loading()) {
       <div class="vos-skel"></div>
     } @else if (summary(); as s) {
-      <p class="vos-muted">{{ s.pet?.name }} · Overview from recorded care only</p>
+      <p class="vos-muted">{{ s.pet?.name | vosTitleCase }} · Overview from recorded care only</p>
 
       <section class="vos-card">
         <p class="label">Care status</p>

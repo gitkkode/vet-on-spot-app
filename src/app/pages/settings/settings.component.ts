@@ -1,9 +1,10 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 const PREFS_KEY = 'vos.notification.prefs';
 const EXTRA_KEY = 'vos.account.prefs';
@@ -23,12 +24,12 @@ type Extra = {
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule, VosSelectComponent],
+  imports: [RouterLink, FormsModule, VosSelectComponent, VosBackButtonComponent],
   selector: 'app-settings',
   template: `
     <div class="wrap">
       <header class="head">
-        <a [routerLink]="backLink" class="vos-back">← {{ backLabel }}</a>
+        <vos-back-button />
         <h1>Settings</h1>
         <p class="vos-muted">Manage how VetonSpot contacts you and how care tools behave.</p>
         @if (ok()) {
@@ -188,20 +189,6 @@ type Extra = {
       display: block; font-style: normal; color: var(--vos-ink-muted);
       font-size: 0.84rem; margin-top: 2px; line-height: 1.35;
     }
-    .switch-row input[type='checkbox'] {
-      appearance: none; -webkit-appearance: none;
-      width: 48px; height: 28px; border-radius: 999px; flex-shrink: 0;
-      background: #d4cfc4; border: 0; position: relative; cursor: pointer;
-      transition: background 0.2s ease;
-    }
-    .switch-row input[type='checkbox']::after {
-      content: ''; position: absolute; top: 3px; left: 3px;
-      width: 22px; height: 22px; border-radius: 50%; background: #fff;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-      transition: transform 0.2s ease;
-    }
-    .switch-row input[type='checkbox']:checked { background: var(--vos-brand); }
-    .switch-row input[type='checkbox']:checked::after { transform: translateX(20px); }
 
     .field {
       display: flex; flex-direction: column; gap: 6px;
@@ -231,8 +218,7 @@ type Extra = {
   `],
 })
 export class SettingsComponent implements OnInit {
-  backLink: any[] = ['/profile'];
-  backLabel = 'Profile';
+
   prefs: Prefs = {
     emailAlerts: true,
     smsAlerts: true,
@@ -259,19 +245,10 @@ export class SettingsComponent implements OnInit {
   constructor(
     private auth: AuthService,
     private router: Router,
-    private route: ActivatedRoute,
     private api: CustomerApiService,
   ) {}
 
   ngOnInit() {
-    const from = this.route.snapshot.queryParamMap.get('from');
-    if (from === 'home') {
-      this.backLink = ['/home'];
-      this.backLabel = 'Home';
-    } else {
-      this.backLink = ['/profile'];
-      this.backLabel = 'Profile';
-    }
     this.prefs = this.readPrefs();
     this.extra = this.readExtra();
   }

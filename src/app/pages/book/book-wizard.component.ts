@@ -5,6 +5,10 @@ import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { AuthService } from '../../services/auth.service';
 import { BookingGateService } from '../../services/booking-gate.service';
+import { blockingBookings, bookingBlocksPet } from '../../utils/booking-pending';
+import { resolvePetPhotoUrl } from '../../utils/pet-photo';
+import { displayPetName } from '../../utils/health-records';
+import { NavBackService } from '../../services/nav-back.service';
 const REASONS = [
   'sick',
   'vomiting / diarrhea',
@@ -148,7 +152,7 @@ const INDIAN_STATES = [
   template: `
     <button type="button" class="vos-back" (click)="onTopBack()">
       <span class="vos-back__chev" aria-hidden="true">‹</span>
-      {{ step() > 1 ? 'Back' : 'Home' }}
+      {{ topBackLabel() }}
     </button>
 
     <header class="head">
@@ -190,7 +194,9 @@ const INDIAN_STATES = [
         <p>Your progress on this visit draft will be discarded.</p>
         <div class="modal__actions">
           <button type="button" class="ghost" (click)="exitOpen.set(false)">Keep booking</button>
-          <a class="btn btn--danger" routerLink="/home">Discard &amp; go home</a>
+          <button type="button" class="btn btn--danger" (click)="discardAndLeave()">
+            Discard &amp; leave
+          </button>
         </div>
       </div>
     }
@@ -241,10 +247,16 @@ const INDIAN_STATES = [
                   [attr.title]="petHasActiveVisit(p.id) ? (p.name + ' already has an upcoming or ongoing visit') : null"
                   (click)="togglePet(p.id)"
                 >
-                  <span class="chip__mono" aria-hidden="true">{{ (p.name || '?').charAt(0) }}</span>
+                  <span class="chip__avatar" aria-hidden="true">
+                    @if (petPhotoUrl(p)) {
+                      <img [src]="petPhotoUrl(p)" alt="" (error)="onPetPhotoError(p.id)" />
+                    } @else {
+                      <span class="chip__mono">{{ petInitial(p.name) }}</span>
+                    }
+                  </span>
                   <span class="chip__copy">
-                    <strong>{{ p.name }}</strong>
-                    <em>{{ petHasActiveVisit(p.id) ? 'Visit already booked' : (p.species || 'Pet') }}</em>
+                    <strong>{{ displayPetName(p.name) }}</strong>
+                    <em>{{ petHasActiveVisit(p.id) ? 'Visit already booked' : prettySpecies(p.species) }}</em>
                   </span>
                 </button>
               }
@@ -252,7 +264,7 @@ const INDIAN_STATES = [
             @if (conflictBooking(); as conflict) {
               <div class="conflict" role="status">
                 <p>
-                  <strong>{{ conflict.petName || 'This pet' }}</strong> already has an upcoming or ongoing visit
+                  <strong>{{ displayPetName(conflict.petName, 'This pet') }}</strong> already has an upcoming or ongoing visit
                   ({{ conflict.scheduledDate || 'upcoming' }}{{ conflict.scheduledTime ? ' · ' + conflict.scheduledTime : '' }}).
                   Finish or reschedule that visit before booking another for this pet.
                 </p>
@@ -796,6 +808,27 @@ const INDIAN_STATES = [
       transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
       box-sizing: border-box;
     }
+    .chip__avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: var(--vos-brand-soft, #ffe4dc);
+      border: 2px solid rgba(253, 74, 41, 0.18);
+      box-sizing: border-box;
+    }
+    .chip__avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+    }
+    .chip.on .chip__avatar {
+      border-color: var(--vos-brand);
+      box-shadow: 0 0 0 3px rgba(253, 74, 41, 0.16);
+    }
     .chip__copy {
       display: flex;
       flex-direction: column;
@@ -814,10 +847,11 @@ const INDIAN_STATES = [
     .chip__copy strong {
       display: block;
       font-family: var(--vos-display);
-      font-size: 1.08rem;
+      font-size: 1.12rem;
       letter-spacing: -0.02em;
       line-height: 1.2;
       font-weight: 700;
+      color: var(--vos-ink);
     }
     .chip.on {
       border-color: var(--vos-brand);
@@ -838,19 +872,16 @@ const INDIAN_STATES = [
       box-shadow: none;
     }
     .chip__mono {
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      display: inline-flex;
+      width: 100%;
+      height: 100%;
+      display: flex;
       align-items: center;
       justify-content: center;
-      background: var(--vos-brand-soft, #ffe4dc);
-      color: var(--vos-brand, #FD4A29);
       font-family: var(--vos-display);
       font-weight: 700;
       font-size: 1.15rem;
       line-height: 1;
-      flex-shrink: 0;
+      color: var(--vos-brand, #FD4A29);
       text-transform: uppercase;
       box-sizing: border-box;
     }
@@ -985,10 +1016,17 @@ const INDIAN_STATES = [
       padding: 0;
       border-style: solid;
       border-color: var(--vos-border);
-      min-height: 160px;
+      min-height: 180px;
+      background: #f7f4ee;
     }
     .upload__preview {
-      width: 100%; height: 160px; object-fit: cover; display: block;
+      width: 100%;
+      max-height: min(52vh, 420px);
+      height: auto;
+      object-fit: contain;
+      object-position: center;
+      display: block;
+      background: #f7f4ee;
     }
     .upload__change {
       position: absolute; left: 12px; bottom: 12px;
@@ -1336,6 +1374,7 @@ export class BookWizardComponent implements OnInit {
   readonly submitting = signal(false);
   readonly error = signal('');
   readonly photoPreview = signal('');
+  readonly brokenPhotos = signal<Set<string>>(new Set());
   readonly booting = signal(true);
   readonly sessionExpired = signal(false);
   readonly exitOpen = signal(false);
@@ -1369,6 +1408,7 @@ export class BookWizardComponent implements OnInit {
     private activePet: ActivePetService,
     private auth: AuthService,
     private bookingGate: BookingGateService,
+    private navBack: NavBackService,
   ) {}
 
   @HostListener('document:click')
@@ -1446,6 +1486,17 @@ export class BookWizardComponent implements OnInit {
     this.exitOpen.set(true);
   }
 
+  topBackLabel(): string {
+    if (this.step() > 1) return 'Back';
+    const prev = this.navBack.previousUrl();
+    return this.navBack.labelFor(prev, 'Home');
+  }
+
+  discardAndLeave() {
+    this.exitOpen.set(false);
+    this.navBack.goBack('/home');
+  }
+
   ngOnInit() {
     const today = new Date();
     this.minDate = this.toIsoDate(today);
@@ -1477,7 +1528,7 @@ export class BookWizardComponent implements OnInit {
       this.pets.set(pets || []);
       const addrs = this.normalizeAddresses(addrsRaw);
       this.addresses.set(addrs);
-      this.activeBookings.set(this.normalizeBookings(bookingsRaw).filter((b) => this.isActiveBooking(b)));
+      this.activeBookings.set(blockingBookings(bookingsRaw));
       this.bookingGate.syncFromBookings(bookingsRaw, pets || []);
       const def = addrs.find((a: any) => a.isDefault) || addrs[0];
       if (def) {
@@ -1539,24 +1590,40 @@ export class BookWizardComponent implements OnInit {
     return [];
   }
 
-  private normalizeBookings(raw: any): any[] {
-    if (Array.isArray(raw)) return raw;
-    if (Array.isArray(raw?.items)) return raw.items;
-    if (Array.isArray(raw?.bookings)) return raw.bookings;
-    return [];
-  }
-
-  private isActiveBooking(b: any): boolean {
-    const st = String(b?.status || b?.customerStatus?.code || b?.customerStatus?.label || '').toLowerCase();
-    if (!st) return true;
-    return !/(complet|cancel|done|no.?show|closed|declined)/.test(st);
-  }
-
   private toIsoDate(d: Date) {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
+  }
+
+  petPhotoUrl(p: any): string {
+    if (!p?.id || this.brokenPhotos().has(p.id)) return '';
+    return resolvePetPhotoUrl(p);
+  }
+
+  onPetPhotoError(id: string) {
+    if (!id) return;
+    this.brokenPhotos.update((set) => {
+      const next = new Set(set);
+      next.add(id);
+      return next;
+    });
+  }
+
+  petInitial(name: string | null | undefined): string {
+    const n = String(name || '?').trim();
+    return (n.charAt(0) || '?').toUpperCase();
+  }
+
+  displayPetName(name: string | null | undefined, fallback = 'Pet'): string {
+    return displayPetName(name, fallback);
+  }
+
+  prettySpecies(species: string | null | undefined): string {
+    const s = String(species || '').trim();
+    if (!s || /^other$/i.test(s)) return 'Pet';
+    return displayPetName(s);
   }
 
   isPetOn(id: string) {
@@ -1582,28 +1649,15 @@ export class BookWizardComponent implements OnInit {
   /** True when this pet already has an upcoming / ongoing visit. */
   petHasActiveVisit(id: string): boolean {
     const pet = this.pets().find((p) => p.id === id);
-    const petName = String(pet?.name || '').trim().toLowerCase();
-    return this.activeBookings().some((b) => {
-      const bid = String(b?.petId || b?.pet?.id || '').trim();
-      if (bid && bid === id) return true;
-      if (Array.isArray(b?.petIds) && b.petIds.some((x: any) => String(x) === id)) return true;
-      const bName = String(b?.petName || '').trim().toLowerCase();
-      return !!(petName && bName && bName === petName);
-    });
+    if (this.bookingGate.isBlocked(id, pet?.name)) return true;
+    return this.activeBookings().some((b) => bookingBlocksPet(b, id, pet?.name));
   }
 
   conflictBooking(): any | null {
     for (const id of this.petIds) {
       if (!this.petHasActiveVisit(id)) continue;
       const pet = this.pets().find((p) => p.id === id);
-      const petName = String(pet?.name || '').trim().toLowerCase();
-      const hit = this.activeBookings().find((b) => {
-        const bid = String(b?.petId || b?.pet?.id || '').trim();
-        if (bid && bid === id) return true;
-        if (Array.isArray(b?.petIds) && b.petIds.some((x: any) => String(x) === id)) return true;
-        const bName = String(b?.petName || '').trim().toLowerCase();
-        return !!(petName && bName && bName === petName);
-      });
+      const hit = this.activeBookings().find((b) => bookingBlocksPet(b, id, pet?.name));
       if (hit) {
         return { ...hit, petName: hit.petName || pet?.name };
       }
@@ -1880,7 +1934,8 @@ export class BookWizardComponent implements OnInit {
   petNames() {
     const names = this.petIds
       .map((id) => this.pets().find((p) => p.id === id)?.name)
-      .filter(Boolean);
+      .filter(Boolean)
+      .map((n) => displayPetName(n as string));
     return names.length ? names.join(', ') : '—';
   }
 
@@ -1956,7 +2011,11 @@ export class BookWizardComponent implements OnInit {
           try {
             await this.api.uploadBookingFiles(booking.id, [this.photoFile]);
           } catch {
-            /* booking still created */
+            /* booking still created — surface soft warning via query param */
+            sessionStorage.setItem(
+              'vos.booking.uploadWarn',
+              'Visit booked, but the photo could not be uploaded. You can add it from the visit page if available.',
+            );
           }
         }
       }

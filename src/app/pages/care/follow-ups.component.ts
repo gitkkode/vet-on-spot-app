@@ -1,16 +1,17 @@
 import { Component, OnInit, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import {RouterLink} from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { doctorLabel, titleCase } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-follow-ups',
   template: `
     <div class="wrap">
-      <a [routerLink]="backLink" class="vos-back">← {{ backLabel }}</a>
+      <vos-back-button />
       <h1>Follow-ups</h1>
       <p class="lede">Rechecks from your vet and follow-up visits you’ve booked.</p>
 
@@ -69,11 +70,28 @@ import { doctorLabel, titleCase } from '../../utils/health-records';
     </div>
   `,
   styles: [`
-    .wrap { max-width: 600px; margin: 0 auto; }
+    :host { display: block; width: 100%; }
+    .wrap {
+      width: 100%;
+      max-width: none;
+      margin: 0;
+    }
     h1, h2 { margin: 4px 0; font-family: var(--vos-display); }
+    h1 {
+      font-size: clamp(1.65rem, 3vw, 2.15rem);
+      letter-spacing: -0.03em;
+    }
     h2 { font-size: 1.15rem; }
-    .lede { margin: 0 0 16px; color: var(--vos-ink-muted); }
-    .item { margin-bottom: 10px; }
+    .lede {
+      margin: 0 0 18px;
+      color: var(--vos-ink-muted);
+      max-width: 52ch;
+    }
+    .item {
+      margin-bottom: 12px;
+      width: 100%;
+      box-sizing: border-box;
+    }
     .top {
       display: flex; justify-content: space-between; align-items: center; gap: 8px;
       margin-bottom: 6px;
@@ -87,7 +105,7 @@ import { doctorLabel, titleCase } from '../../utils/health-records';
     .when { margin: 4px 0 8px; font-weight: 700; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
     .empty {
-      text-align: center; padding: 32px 20px;
+      text-align: center; padding: 36px 22px;
       border-radius: 20px; background: #fffef9; border: 1px solid var(--vos-border);
     }
     .empty__mark {
@@ -96,7 +114,7 @@ import { doctorLabel, titleCase } from '../../utils/health-records';
       box-shadow: inset 0 0 0 2px rgba(253, 74, 41, 0.2);
     }
     .empty h2 { margin-bottom: 8px; }
-    .empty p { margin: 0 auto 16px; max-width: 34ch; color: var(--vos-ink-muted); }
+    .empty p { margin: 0 auto 16px; max-width: 40ch; color: var(--vos-ink-muted); }
   `],
 })
 export class FollowUpsComponent implements OnInit {
@@ -104,33 +122,17 @@ export class FollowUpsComponent implements OnInit {
   readonly loading = signal(true);
   readonly error = signal('');
   readonly ok = signal('');
-  backLink: any[] = ['/home'];
-  backLabel = 'Home';
+
 
   titleCase = titleCase;
   doctorLabel = doctorLabel;
 
   constructor(
     private api: CustomerApiService,
-    private activePet: ActivePetService,
-    private route: ActivatedRoute,
+    private activePet: ActivePetService
   ) {}
 
   ngOnInit() {
-    const from = this.route.snapshot.queryParamMap.get('from');
-    if (from === 'settings') {
-      this.backLink = ['/settings'];
-      this.backLabel = 'Settings';
-    } else if (from === 'profile') {
-      this.backLink = ['/profile'];
-      this.backLabel = 'Profile';
-    } else if (from === 'health') {
-      this.backLink = ['/health'];
-      this.backLabel = 'Health';
-    } else {
-      this.backLink = ['/home'];
-      this.backLabel = 'Home';
-    }
     void this.load();
   }
 

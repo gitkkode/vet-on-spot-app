@@ -1,7 +1,12 @@
 import { Injectable, computed, signal } from '@angular/core';
 import { ActivePetService } from './active-pet.service';
 import { CustomerApiService } from './customer-api.service';
-import { filterUpcomingBookings, normalizeBookingsList } from '../utils/booking-pending';
+import {
+  blockingBookings,
+  bookingPetIds,
+  isGenericPetName,
+  normalizePetName,
+} from '../utils/booking-pending';
 
 /**
  * Tracks every pet that already has an upcoming / ongoing visit so Book CTAs
@@ -31,7 +36,7 @@ export class BookingGateService {
   isBlocked(petId?: string | null, petName?: string | null): boolean {
     const id = String(petId || '').trim();
     if (id && (this.blockedPetIds().has(id) || this.stickyBlockedIds().has(id))) return true;
-    const name = this.normName(petName);
+    const name = normalizePetName(petName) || (id ? this.petNameById().get(id) : '') || '';
     if (name && (this.blockedPetNames().has(name) || this.stickyBlockedNames().has(name))) {
       return true;
     }
@@ -39,9 +44,7 @@ export class BookingGateService {
   }
 
   syncFromBookings(raw: unknown, pets: Array<{ id?: string; name?: string }> = []) {
-    const list = filterUpcomingBookings(normalizeBookingsList(raw)).filter(
-      (b) => this.isActiveBooking(b) && this.isUpcomingSlot(b),
-    );
+    const list = blockingBookings(raw);
     const ids = new Set<string>();
     const names = new Set<string>();
     const idsByName = new Map<string, string[]>();
@@ -49,34 +52,30 @@ export class BookingGateService {
 
     for (const p of pets || []) {
       const pid = String(p?.id || '').trim();
-      const n = this.normName(p?.name);
-      if (!pid || !n) continue;
-      nameById.set(pid, n);
-      const arr = idsByName.get(n) || [];
-      arr.push(pid);
-      idsByName.set(n, arr);
+      const n = normalizePetName(p?.name);
+      if (!pid) continue;
+      if (n) {
+        nameById.set(pid, n);
+        const arr = idsByName.get(n) || [];
+        arr.push(pid);
+        idsByName.set(n, arr);
+      }
     }
     this.petNameById.set(nameById);
 
     for (const b of list) {
-      const fromIds = this.petIdsOnBooking(b);
-      for (const pid of fromIds) {
-        ids.add(pid);
-        const pet = (pets || []).find((p) => String(p?.id || '') === pid);
-        const n = this.normName(pet?.name || b?.petName);
-        if (n && !this.isGenericPetName(n)) names.add(n);
+      const fromIds = bookingPetIds(b);
+      if (fromIds.length) {
+        // Reliable id link — block only those pets (not every same-name sibling)
+        for (const pid of fromIds) ids.add(pid);
+        continue;
       }
 
-      const bookingName = this.normName(b?.petName);
-      if (bookingName && !this.isGenericPetName(bookingName)) {
+      // No petId on booking — fall back to display name (blocks all same-name pets)
+      const bookingName = normalizePetName(b?.petName);
+      if (bookingName && !isGenericPetName(bookingName)) {
         names.add(bookingName);
-        // Same display name can exist on multiple pet profiles — block all of them
         for (const pid of idsByName.get(bookingName) || []) ids.add(pid);
-      }
-
-      // Booking has petId(s) but also name — ensure name is blocked too
-      if (!fromIds.length && (!bookingName || this.isGenericPetName(bookingName))) {
-        // Orphan / generic — cannot map; leave for sticky from home
       }
     }
 
@@ -93,13 +92,23 @@ export class BookingGateService {
    */
   markPetBlocked(petId: string | null | undefined, petName?: string | null) {
     const id = String(petId || '').trim();
-    const name = this.normName(petName);
+    const name = normalizePetName(petName);
 
     if (id) {
       this.stickyBlockedIds.update((prev) => new Set(prev).add(id));
       this.blockedPetIds.update((prev) => new Set(prev).add(id));
+      if (name) {
+        this.petNameById.update((prev) => {
+          const next = new Map(prev);
+          next.set(id, name);
+          return next;
+        });
+      }
+      return;
     }
-    if (name && !this.isGenericPetName(name)) {
+
+    // No id — name is the only handle
+    if (name && !isGenericPetName(name)) {
       this.stickyBlockedNames.update((prev) => new Set(prev).add(name));
       this.blockedPetNames.update((prev) => new Set(prev).add(name));
     }
@@ -108,7 +117,7 @@ export class BookingGateService {
   /** Clear block after a successful cancel for this pet. */
   clearPetBlocked(petId: string | null | undefined, petName?: string | null) {
     const id = String(petId || '').trim();
-    const name = this.normName(petName);
+    const name = normalizePetName(petName);
 
     if (id) {
       this.stickyBlockedIds.update((prev) => {
@@ -158,43 +167,5 @@ export class BookingGateService {
     } catch {
       /* keep last known state */
     }
-  }
-
-  private petIdsOnBooking(b: any): string[] {
-    const out: string[] = [];
-    const single = String(b?.petId || b?.pet?.id || '').trim();
-    if (single) out.push(single);
-    if (Array.isArray(b?.petIds)) {
-      for (const x of b.petIds) {
-        const id = String(x || '').trim();
-        if (id) out.push(id);
-      }
-    }
-    return out;
-  }
-
-  private isActiveBooking(b: any): boolean {
-    const st = String(b?.status || b?.customerStatus?.code || b?.customerStatus?.label || '').toLowerCase();
-    if (!st) return true;
-    return !/(complet|cancel|done|no.?show|closed|declined|missed)/.test(st);
-  }
-
-  private isUpcomingSlot(b: any): boolean {
-    const when = b?.scheduledDate || b?.preferredDate;
-    if (!when) return true;
-    const raw = String(when);
-    const t = new Date(raw.includes('T') ? raw : `${raw.slice(0, 10)}T12:00:00`).getTime();
-    return Number.isNaN(t) || t >= Date.now() - 4 * 3600 * 1000;
-  }
-
-  private normName(name: string | null | undefined): string {
-    return String(name || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, ' ');
-  }
-
-  private isGenericPetName(name: string): boolean {
-    return name === 'visit' || name === 'pet' || name === 'your pet' || name === 'home visit';
   }
 }

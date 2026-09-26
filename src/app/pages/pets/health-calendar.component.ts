@@ -1,13 +1,14 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-health-calendar',
   template: `
-    <a class="vos-back" [routerLink]="['/pets', petId, 'health']">← Health</a>
+    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
     <h1>Health calendar</h1>
     <p class="vos-muted">Visits, follow-ups, vaccinations, and reminders by date.</p>
     @if (error()) {

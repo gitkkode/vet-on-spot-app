@@ -2,13 +2,15 @@ import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, VosBackButtonComponent, VosTitleCasePipe],
   selector: 'app-second-opinion',
   template: `
-    <a routerLink="/health" class="vos-back">← Health</a>
+    <vos-back-button [fallback]="'/health'" fallbackLabel="Health" />
     <h1>Second opinion</h1>
     <p class="vos-muted">
       Request another clinical perspective on a past visit. Include the visit reference and why you want a second look.
@@ -41,7 +43,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
             <strong>{{ kindLabel(r.kind) }}</strong>
             <span class="vos-badge">{{ r.status }}</span>
           </div>
-          <p class="vos-muted">{{ r.petName || 'Pet' }} · visit {{ r.visitId || '—' }}</p>
+          <p class="vos-muted">{{ r.petName | vosTitleCase:'Pet' }} · visit {{ r.visitId || '—' }}</p>
           @if (r.reason) { <p>{{ r.reason }}</p> }
           @if (r.responseText) {
             <div class="resp">
