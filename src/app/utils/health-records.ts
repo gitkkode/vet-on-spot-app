@@ -10,13 +10,35 @@ export function asList(raw: unknown, keys: string[] = ['items', 'data']): any[] 
   return [];
 }
 
+/**
+ * Title Case for display (pet names, person names, breeds, etc.).
+ * Does not mutate stored/API values — apply only when rendering UI text.
+ */
 export function titleCase(v: string | null | undefined): string {
   const raw = String(v || '').trim();
   if (!raw) return '';
   return raw
-    .split(/\s+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ');
+    .split(/(\s+)/)
+    .map((part) => {
+      if (/^\s+$/.test(part)) return part;
+      // Preserve hyphenated names: "mary-jane" → "Mary-Jane"
+      return part
+        .split('-')
+        .map((w) => {
+          if (!w) return w;
+          return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+        })
+        .join('-');
+    })
+    .join('');
+}
+
+/** Pet name for UI; empty → fallback. */
+export function displayPetName(
+  name: string | null | undefined,
+  fallback = 'Pet',
+): string {
+  return titleCase(name) || fallback;
 }
 
 export function doctorLabel(name: string | null | undefined): string {

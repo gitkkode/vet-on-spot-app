@@ -1,13 +1,15 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent, VosTitleCasePipe],
   selector: 'app-diagnostic-detail',
   template: `
-    <a routerLink="/diagnostics" class="vos-back">← Diagnostics</a>
+    <vos-back-button [fallback]="'/diagnostics'" fallbackLabel="Diagnostics" />
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
     }
@@ -18,7 +20,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
       <div class="vos-badge">{{ statusLabel(lab.status) }}</div>
 
       <div class="vos-card">
-        <p><strong>Pet</strong> {{ lab.petName || '—' }}</p>
+        <p><strong>Pet</strong> {{ lab.petName | vosTitleCase:'—' }}</p>
         <p><strong>Visit</strong> {{ lab.visitId || '—' }}</p>
         @if (lab.sampleType) { <p><strong>Sample</strong> {{ lab.sampleType }}</p> }
         @if (lab.reason) { <p><strong>Reason</strong> {{ lab.reason }}</p> }

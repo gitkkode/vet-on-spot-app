@@ -139,10 +139,10 @@ import { environment } from '../../../environments/environment';
                         type="text"
                         inputmode="numeric"
                         autocomplete="one-time-code"
-                        maxlength="6"
+                        maxlength="4"
                         [(ngModel)]="otp"
                         name="otp"
-                        placeholder="••••••"
+                        placeholder="••••"
                         required
                         class="otp"
                         [disabled]="loading()"
@@ -257,14 +257,26 @@ import { environment } from '../../../environments/environment';
       background: rgba(255,180,140,0.16);
       animation: float 12s ease-in-out infinite alternate-reverse;
     }
-    .story__top, .story__body, .story__foot { position: relative; }
+    .story__top, .story__body, .story__foot { position: relative; z-index: 1; }
+    .story__top {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 18px;
+      margin-bottom: 8px;
+      width: 100%;
+    }
     .story__brand {
-      margin: 0 0 18px;
+      margin: 0;
       font-family: var(--vos-display, "Gabarito", system-ui, sans-serif);
       font-weight: 700; font-size: 1.6rem; letter-spacing: -0.05em;
       color: #fff;
       text-decoration: none;
-      display: inline-block;
+      display: block;
+      width: max-content;
+      max-width: 100%;
+      line-height: 1.1;
+      flex: 0 0 auto;
     }
     .story__brand .o, .mobile-brand .o { color: #fff; }
     .mobile-brand a {
@@ -295,7 +307,11 @@ import { environment } from '../../../environments/environment';
         inset 0 1px 0 rgba(255, 255, 255, 0.28);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
-      max-width: max-content;
+      max-width: 100%;
+      box-sizing: border-box;
+      flex: 0 0 auto;
+      align-self: flex-start;
+      margin: 0;
     }
     .locale__pin {
       position: relative;
@@ -325,30 +341,37 @@ import { environment } from '../../../environments/environment';
       border-radius: 50%;
       border: 1.5px solid rgba(255, 255, 255, 0.7);
       animation: localePulse 2s ease-out infinite;
+      pointer-events: none;
     }
     .locale__copy {
       display: flex;
       flex-direction: column;
-      gap: 1px;
-      line-height: 1.15;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.2;
       min-width: 0;
     }
     .locale__live {
+      display: block;
       font-family: var(--vos-mono, "JetBrains Mono", ui-monospace, monospace);
       font-size: 9px;
       font-weight: 700;
-      letter-spacing: 0.16em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
       opacity: 0.78;
+      line-height: 1.2;
     }
     .locale__city {
+      display: block;
       font-family: var(--vos-display, "Gabarito", system-ui, sans-serif);
-      font-size: 1.08rem;
+      font-size: 1.05rem;
       font-weight: 700;
       letter-spacing: -0.03em;
+      line-height: 1.15;
+      white-space: nowrap;
     }
     .locale--compact {
-      margin-top: 10px;
+      margin-top: 0;
       padding: 7px 12px 7px 8px;
       gap: 8px;
       background: rgba(253, 74, 41, 0.1);
@@ -412,8 +435,12 @@ import { environment } from '../../../environments/environment';
       display: flex;
       flex-direction: column;
       align-items: center;
+      gap: 12px;
       font-family: var(--vos-display, "Gabarito", system-ui, sans-serif);
       font-weight: 700; font-size: 1.3rem; letter-spacing: -0.04em;
+    }
+    .mobile-brand .locale--compact {
+      margin-top: 0;
     }
     @media (min-width: 980px) {
       .mobile-brand { display: none; }
@@ -545,7 +572,7 @@ import { environment } from '../../../environments/environment';
     .otp {
       width: 100%; margin-top: 10px; padding: 16px 18px;
       border-radius: 16px; border: 1.5px solid transparent;
-      background: #f4f0e8; font-size: 1.65rem; letter-spacing: 0.45em;
+      background: #f4f0e8; font-size: 1.65rem; letter-spacing: 0.55em;
       text-align: center; color: #0a0a0a; box-sizing: border-box;
       min-height: 64px;
       font-family: var(--vos-display, "Gabarito", system-ui, sans-serif);
@@ -722,7 +749,7 @@ export class LoginComponent implements OnInit, AfterViewChecked {
   }
 
   canVerify(): boolean {
-    return this.otp.replace(/\D/g, '').length >= 4;
+    return this.otp.replace(/\D/g, '').length === 4;
   }
 
   onMobileInput() {
@@ -730,7 +757,7 @@ export class LoginComponent implements OnInit, AfterViewChecked {
   }
 
   onOtpInput() {
-    this.otp = this.otp.replace(/\D/g, '').slice(0, 6);
+    this.otp = this.otp.replace(/\D/g, '').slice(0, 4);
   }
 
   private flashInfo(msg: string) {
@@ -807,7 +834,8 @@ export class LoginComponent implements OnInit, AfterViewChecked {
     this.resending.set(true);
     this.error.set('');
     try {
-      await this.msg91.retryOtp(null);
+      // MSG91 custom widgets require channel '11' (SMS); service defaults + falls back to sendOtp
+      await this.msg91.retryOtp();
       this.flashInfo('OTP resent');
       this.startResendCooldown(30);
     } catch (e: any) {

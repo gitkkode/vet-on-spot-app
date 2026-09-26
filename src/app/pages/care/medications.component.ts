@@ -2,17 +2,15 @@ import { Component, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
+import { titleCase } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-medications',
   template: `
-    @if (petId) {
-      <a [routerLink]="['/pets', petId, 'health']" class="vos-back">← Health</a>
-    } @else {
-      <a routerLink="/health" class="vos-back">← Health</a>
-    }
+    <vos-back-button [fallback]="petId ? ['/pets', petId, 'health'] : '/health'" fallbackLabel="Health" />
     <h1>Medications</h1>
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" (click)="load()">Retry</button></div>
@@ -92,14 +90,7 @@ export class MedicationsComponent implements OnInit {
     void this.load();
   }
 
-  titleCase(v: string | null | undefined): string {
-    const raw = String(v || '').trim();
-    if (!raw) return '';
-    return raw
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
-  }
+  titleCase = titleCase;
 
   slotsFor(m: any): string[] {
     const t = m.times || {};

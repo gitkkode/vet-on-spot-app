@@ -2,13 +2,15 @@ import { Component, OnInit, signal } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { titleCase } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, SlicePipe],
+  imports: [RouterLink, SlicePipe, VosBackButtonComponent],
   selector: 'app-pet-timeline',
   template: `
-    <a class="vos-back" [routerLink]="['/pets', petId, 'health']">← Health</a>
+    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
     <h1>Timeline</h1>
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -96,14 +98,7 @@ export class PetTimelineComponent implements OnInit {
     void this.load();
   }
 
-  titleCase(v: string | null | undefined): string {
-    const raw = String(v || '').trim();
-    if (!raw) return '';
-    return raw
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
-  }
+  titleCase = titleCase;
 
   doctorLabel(name: string | null | undefined): string {
     let n = String(name || '').trim();

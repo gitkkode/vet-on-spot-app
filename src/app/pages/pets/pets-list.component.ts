@@ -3,12 +3,17 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { BookingGateService } from '../../services/booking-gate.service';
+import { resolvePetPhotoUrl } from '../../utils/pet-photo';
+import { displayPetName, titleCase } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-pets-list',
   template: `
+    <vos-back-button />
+
     <header class="head vos-page-head">
       <div>
         <p class="kicker vos-eyebrow">Your household</p>
@@ -54,7 +59,7 @@ import { BookingGateService } from '../../services/booking-gate.service';
               <div class="portrait" aria-hidden="true">
                 @if (showPhoto(p)) {
                   <img
-                    [src]="p.photoUrl"
+                    [src]="petPhotoSrc(p)"
                     alt=""
                     (error)="onPhotoError(p.id)"
                   />
@@ -344,10 +349,14 @@ export class PetsListComponent implements OnInit {
   }
 
   showPhoto(p: { id?: string; photoUrl?: string | null }): boolean {
-    const url = String(p?.photoUrl || '').trim();
+    const url = resolvePetPhotoUrl(p);
     if (!url || !p?.id) return false;
     if (this.brokenPhotos().has(p.id)) return false;
     return true;
+  }
+
+  petPhotoSrc(p: { photoUrl?: string | null }): string {
+    return resolvePetPhotoUrl(p);
   }
 
   onPhotoError(id: string) {
@@ -365,16 +374,11 @@ export class PetsListComponent implements OnInit {
   }
 
   displayName(name: string | null | undefined): string {
-    return this.titleCase(name) || 'Pet';
+    return displayPetName(name);
   }
 
   private titleCase(v: string | null | undefined): string {
-    const raw = String(v || '').trim();
-    if (!raw) return '';
-    return raw
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
+    return titleCase(v);
   }
 
   line(p: any): string {

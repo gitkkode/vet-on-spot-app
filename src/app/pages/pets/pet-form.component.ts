@@ -1,16 +1,26 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
+import { cropImageRegionToFile, resolvePetPhotoUrl, cachePetPhotoUrl, fileToDataUrl } from '../../utils/pet-photo';
+import {
+  PET_DOC_CATEGORIES,
+  PetDocCategoryId,
+  categoryLabel,
+  isAllowedPetDocument,
+  MAX_PET_DOC_BYTES,
+} from '../../utils/pet-documents';
+import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, VosSelectComponent, VosBackButtonComponent],
   selector: 'app-pet-form',
   template: `
     <div class="top-nav">
-      <a routerLink="/pets" class="back">← Pets</a>
+      <vos-back-button [fallback]="'/pets'" fallbackLabel="Pets" />
       @if (!isEdit && stage() === 2) {
         <button type="button" class="back back--step" (click)="goToStep1()">← Step 1</button>
       }
@@ -154,7 +164,7 @@ import { ActivePetService } from '../../services/active-pet.service';
         <div class="field">
           Photo <span class="opt">(optional)</span>
           <label class="upload" [class.upload--has]="!!preview() || !!model.photoUrl">
-            <input type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" (change)="onFile($event)" />
+            <input type="file" accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.bmp" (change)="onFile($event)" />
             @if (preview()) {
               <img class="upload__preview" [src]="preview()" alt="Selected photo preview" />
               <span class="upload__change">Change photo</span>
@@ -164,12 +174,58 @@ import { ActivePetService } from '../../services/active-pet.service';
             } @else {
               <span class="upload__icon" aria-hidden="true">＋</span>
               <strong>Add a photo</strong>
-              <em>JPG, PNG, or WEBP · max 5 MB</em>
+              <em>Any image · you choose the crop · max 5 MB</em>
             }
           </label>
-          <span class="help">Accepted: JPG, PNG, WEBP. Maximum size 5 MB.</span>
+          <span class="help">Accepted: any common image format. You’ll position and crop the photo yourself. Max 5 MB.</span>
           @if (photoError()) {
             <span class="field-err">{{ photoError() }}</span>
+          }
+        </div>
+
+        <div class="field docs-field">
+          Additional documents <span class="opt">(optional)</span>
+          <p class="help docs-help">
+            Attach ID papers, past reports, vaccination cards, or extra photos.
+            Pick a category for each file — you can add more later from Documents.
+          </p>
+          <div class="docs-row">
+            <label class="docs-cat">
+              Category
+              <vos-select
+                name="pendingDocCategory"
+                ariaLabel="Document category"
+                [options]="docCategoryOptions"
+                [(ngModel)]="pendingDocCategory"
+              />
+            </label>
+            <label class="docs-add">
+              <input
+                type="file"
+                multiple
+                [accept]="docAccept()"
+                (change)="onExtraDocs($event)"
+              />
+              <strong>Add files</strong>
+            </label>
+          </div>
+          @if (docError()) {
+            <span class="field-err">{{ docError() }}</span>
+          }
+          @if (pendingDocs.length) {
+            <ul class="docs-list">
+              @for (d of pendingDocs; track d.key) {
+                <li>
+                  <div>
+                    <strong>{{ d.file.name }}</strong>
+                    <span>{{ categoryLabel(d.category) }} · {{ prettySize(d.file.size) }}</span>
+                  </div>
+                  <button type="button" class="docs-remove" (click)="removePendingDoc(d.key)" aria-label="Remove file">
+                    Remove
+                  </button>
+                </li>
+              }
+            </ul>
           }
         </div>
 
@@ -177,12 +233,60 @@ import { ActivePetService } from '../../services/active-pet.service';
           @if (!isEdit) {
             <button type="button" class="ghost" (click)="goToStep1()">Back</button>
           }
-          <button type="submit" class="btn" [disabled]="saving() || !canSave()">
+          <button type="submit" class="btn" [disabled]="saving() || cropOpen() || !canSave()">
             {{ saving() ? 'Saving…' : isEdit ? 'Save changes' : 'Save pet' }}
           </button>
         </div>
       }
     </form>
+
+    @if (cropOpen()) {
+      <div class="crop-root" role="dialog" aria-modal="true" aria-label="Crop profile photo">
+        <div class="crop-backdrop" (click)="cancelCrop()"></div>
+        <div class="crop-sheet">
+          <header class="crop-head">
+            <h2>Crop photo</h2>
+            <p>Drag to reposition, then zoom to frame the portrait.</p>
+          </header>
+          <div
+            class="crop-stage"
+            (pointerdown)="onCropPointerDown($event)"
+            (pointermove)="onCropPointerMove($event)"
+            (pointerup)="onCropPointerUp($event)"
+            (pointercancel)="onCropPointerUp($event)"
+          >
+            <div class="crop-frame" aria-hidden="true">
+              <img
+                class="crop-img"
+                [src]="cropSrc()"
+                alt=""
+                draggable="false"
+                [style.width.px]="cropDisplayW()"
+                [style.height.px]="cropDisplayH()"
+                [style.transform]="cropTransform()"
+              />
+            </div>
+          </div>
+          <label class="crop-zoom">
+            Zoom
+            <input
+              type="range"
+              min="1"
+              max="3"
+              step="0.01"
+              [value]="cropZoom()"
+              (input)="onCropZoom($event)"
+            />
+          </label>
+          <div class="crop-actions">
+            <button type="button" class="ghost" (click)="cancelCrop()" [disabled]="cropApplying()">Cancel</button>
+            <button type="button" class="btn" (click)="applyCrop()" [disabled]="cropApplying()">
+              {{ cropApplying() ? 'Applying…' : 'Use photo' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
   `,
   styles: [`
     .top-nav {
@@ -417,10 +521,19 @@ import { ActivePetService } from '../../services/active-pet.service';
     .upload--has {
       padding: 0;
       border-style: solid;
-      min-height: 160px;
+      min-height: 0;
+      width: min(100%, 240px);
+      aspect-ratio: 1;
+      margin-top: 8px;
+      border-radius: 50%;
+      overflow: hidden;
     }
     .upload__preview {
-      width: 100%; height: 160px; object-fit: cover; display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
     }
     .upload__change {
       position: absolute; left: 12px; bottom: 12px;
@@ -429,6 +542,49 @@ import { ActivePetService } from '../../services/active-pet.service';
       font-size: 0.8rem; font-weight: 700;
       letter-spacing: 0; text-transform: none;
       pointer-events: none;
+    }
+
+    .docs-field { margin-top: 4px; }
+    .docs-help { margin: 6px 0 10px; }
+    .docs-row {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+    }
+    .docs-cat {
+      display: flex; flex-direction: column; gap: 6px; flex: 1 1 160px;
+      font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--vos-ink-muted);
+    }
+    .docs-cat vos-select {
+      text-transform: none; letter-spacing: 0; font-weight: 600;
+    }
+    .docs-add {
+      position: relative; display: inline-flex; align-items: center; justify-content: center;
+      min-height: 44px; padding: 0 16px; border-radius: 999px; cursor: pointer;
+      border: 1px solid var(--vos-border); background: #fff; color: var(--vos-ink);
+      font-weight: 700; flex: 0 0 auto;
+    }
+    .docs-add input {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .docs-list {
+      list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px;
+    }
+    .docs-list li {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 10px 12px; border-radius: 12px; border: 1px solid var(--vos-border);
+      background: #faf8f4;
+    }
+    .docs-list strong {
+      display: block; font-size: 0.92rem; color: var(--vos-ink);
+      text-transform: none; letter-spacing: 0;
+    }
+    .docs-list span {
+      display: block; font-size: 0.8rem; color: var(--vos-ink-muted);
+      text-transform: none; letter-spacing: 0; font-weight: 600; margin-top: 2px;
+    }
+    .docs-remove {
+      border: 0; background: transparent; color: var(--vos-brand);
+      font-weight: 700; cursor: pointer; font: inherit; padding: 4px 6px;
     }
 
     .nav {
@@ -456,9 +612,79 @@ import { ActivePetService } from '../../services/active-pet.service';
       color: var(--vos-ink-muted);
       border: 1px solid var(--vos-border);
     }
+
+    .crop-root {
+      position: fixed; inset: 0; z-index: 1200;
+      display: grid; place-items: center;
+      padding: 16px;
+    }
+    .crop-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(10, 10, 10, 0.55);
+    }
+    .crop-sheet {
+      position: relative;
+      width: min(100%, 420px);
+      padding: 20px 18px 18px;
+      border-radius: 20px;
+      background: #fff;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .crop-head h2 {
+      margin: 0;
+      font-family: var(--vos-display);
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+    }
+    .crop-head p {
+      margin: 4px 0 0;
+      color: var(--vos-ink-muted);
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+    .crop-stage {
+      touch-action: none;
+      user-select: none;
+      display: grid;
+      place-items: center;
+    }
+    .crop-frame {
+      position: relative;
+      width: 280px; height: 280px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: #111;
+      border: 2px solid rgba(253, 74, 41, 0.55);
+      cursor: grab;
+    }
+    .crop-frame:active { cursor: grabbing; }
+    .crop-img {
+      position: absolute;
+      left: 50%; top: 50%;
+      max-width: none;
+      pointer-events: none;
+      transform-origin: center center;
+    }
+    .crop-zoom {
+      display: grid;
+      gap: 6px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--vos-ink-muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .crop-zoom input[type='range'] {
+      width: 100%;
+      accent-color: var(--vos-brand, #FD4A29);
+    }
+    .crop-actions {
+      display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;
+    }
   `],
 })
-export class PetFormComponent implements OnInit {
+export class PetFormComponent implements OnInit, OnDestroy {
   id = '';
   isEdit = false;
   speciesOpts = ['Dog', 'Cat', 'Other'];
@@ -470,12 +696,20 @@ export class PetFormComponent implements OnInit {
   weightValue: number | null = null;
   weightUnit: 'kg' | 'lbs' = 'kg';
   readonly maxPhotoBytes = 5 * 1024 * 1024;
-  readonly allowedPhotoTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  readonly allowedPhotoTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/heic', 'image/heif'];
   model: any = {
     name: '', species: '', breed: '', gender: '', ageOrDob: '', colorMarks: '',
     weight: '', microchip: '', allergies: '', medicalNotes: '', specialNeeds: '',
   };
   photoFile: File | null = null;
+  pendingDocs: Array<{ key: string; file: File; category: PetDocCategoryId }> = [];
+  pendingDocCategory: PetDocCategoryId = 'id';
+  readonly docCategories = PET_DOC_CATEGORIES.filter((c) => c.id !== 'clinical');
+  readonly docCategoryOptions: VosSelectOption[] = this.docCategories.map((c) => ({
+    value: c.id,
+    label: c.label,
+  }));
+  categoryLabel = categoryLabel;
   readonly stage = signal(1);
   readonly preview = signal('');
   readonly saving = signal(false);
@@ -483,7 +717,21 @@ export class PetFormComponent implements OnInit {
   readonly ok = signal('');
   readonly microchipError = signal('');
   readonly photoError = signal('');
+  readonly docError = signal('');
+  readonly cropOpen = signal(false);
+  readonly cropSrc = signal('');
+  readonly cropZoom = signal(1);
+  readonly cropPanX = signal(0);
+  readonly cropPanY = signal(0);
+  readonly cropApplying = signal(false);
+  readonly cropViewport = 280;
   private siblingPets: Array<{ id: string; name?: string }> = [];
+  private cropRawFile: File | null = null;
+  private cropNaturalW = 0;
+  private cropNaturalH = 0;
+  private cropBaseScale = 1;
+  private cropDragging = false;
+  private cropDragOrigin = { x: 0, y: 0, panX: 0, panY: 0 };
 
   constructor(
     private api: CustomerApiService,
@@ -497,7 +745,7 @@ export class PetFormComponent implements OnInit {
     this.isEdit = !!(this.id && this.route.snapshot.url.some((s) => s.path === 'edit'));
     try {
       const list = await this.api.pets();
-      this.siblingPets = Array.isArray(list) ? list : list?.pets || [];
+      this.siblingPets = Array.isArray(list) ? list : [];
     } catch {
       this.siblingPets = [];
     }
@@ -505,12 +753,34 @@ export class PetFormComponent implements OnInit {
       this.stage.set(2);
       try {
         this.model = { ...this.model, ...(await this.api.pet(this.id)) };
+        const url = resolvePetPhotoUrl(this.model);
+        if (url) this.model.photoUrl = url;
+        this.hydrateIdentityFields();
         this.hydrateSpeciesChoice();
         this.hydrateWeight();
-        if (this.model.sex && !this.model.gender) this.model.gender = this.model.sex;
       } catch (e: any) {
         this.error.set(e?.message || 'Load failed');
       }
+    }
+  }
+
+  ngOnDestroy() {
+    this.revokePreview();
+    this.revokeCropSrc();
+  }
+
+  /** Normalize API aliases so edit Save isn't blocked by missing mapped fields. */
+  private hydrateIdentityFields() {
+    if (!String(this.model.gender || '').trim()) {
+      this.model.gender = String(this.model.sex || '').trim();
+    }
+    if (!String(this.model.ageOrDob || '').trim()) {
+      this.model.ageOrDob = String(
+        this.model.age || this.model.dob || this.model.dateOfBirth || this.model.date_of_birth || '',
+      ).trim();
+    }
+    if (!String(this.model.species || '').trim() && this.model.type) {
+      this.model.species = String(this.model.type).trim();
     }
   }
 
@@ -592,12 +862,11 @@ export class PetFormComponent implements OnInit {
   }
 
   step1Valid(): boolean {
-    return !!(
-      this.model.name?.trim() &&
-      this.resolvedSpecies() &&
-      this.model.gender?.trim() &&
-      this.model.ageOrDob?.trim()
-    );
+    const gender = String(this.model.gender || this.model.sex || '').trim();
+    const age = String(
+      this.model.ageOrDob || this.model.age || this.model.dob || this.model.dateOfBirth || '',
+    ).trim();
+    return !!(this.model.name?.trim() && this.resolvedSpecies() && gender && age);
   }
 
   microchipValid(): boolean {
@@ -632,7 +901,12 @@ export class PetFormComponent implements OnInit {
   }
 
   canSave(): boolean {
-    return this.step1Valid() && this.isMicrochipOk() && !this.photoError();
+    if (this.photoError() || !this.isMicrochipOk()) return false;
+    // Edit: pet already exists — don't block photo/notes saves on optional identity aliases.
+    if (this.isEdit) {
+      return !!(String(this.model.name || '').trim() && this.resolvedSpecies());
+    }
+    return this.step1Valid();
   }
 
   goToStep1() {
@@ -651,38 +925,238 @@ export class PetFormComponent implements OnInit {
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  onFile(ev: Event) {
+  private revokePreview() {
+    const url = this.preview();
+    if (url) URL.revokeObjectURL(url);
+    this.preview.set('');
+  }
+
+  private revokeCropSrc() {
+    const url = this.cropSrc();
+    if (url) URL.revokeObjectURL(url);
+    this.cropSrc.set('');
+  }
+
+  cropDisplayW(): number {
+    return this.cropNaturalW * this.cropBaseScale * this.cropZoom();
+  }
+
+  cropDisplayH(): number {
+    return this.cropNaturalH * this.cropBaseScale * this.cropZoom();
+  }
+
+  cropTransform(): string {
+    return `translate(calc(-50% + ${this.cropPanX()}px), calc(-50% + ${this.cropPanY()}px))`;
+  }
+
+  onCropZoom(ev: Event) {
+    const v = Number((ev.target as HTMLInputElement).value);
+    if (!Number.isFinite(v)) return;
+    this.cropZoom.set(Math.min(3, Math.max(1, v)));
+    this.clampCropPan();
+  }
+
+  onCropPointerDown(ev: PointerEvent) {
+    if (this.cropApplying()) return;
+    const el = ev.currentTarget as HTMLElement;
+    el.setPointerCapture?.(ev.pointerId);
+    this.cropDragging = true;
+    this.cropDragOrigin = {
+      x: ev.clientX,
+      y: ev.clientY,
+      panX: this.cropPanX(),
+      panY: this.cropPanY(),
+    };
+  }
+
+  onCropPointerMove(ev: PointerEvent) {
+    if (!this.cropDragging) return;
+    const dx = ev.clientX - this.cropDragOrigin.x;
+    const dy = ev.clientY - this.cropDragOrigin.y;
+    this.cropPanX.set(this.cropDragOrigin.panX + dx);
+    this.cropPanY.set(this.cropDragOrigin.panY + dy);
+    this.clampCropPan();
+  }
+
+  onCropPointerUp(ev: PointerEvent) {
+    if (!this.cropDragging) return;
+    this.cropDragging = false;
+    try {
+      (ev.currentTarget as HTMLElement).releasePointerCapture?.(ev.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private clampCropPan() {
+    const dw = this.cropDisplayW();
+    const dh = this.cropDisplayH();
+    const maxX = Math.max(0, (dw - this.cropViewport) / 2);
+    const maxY = Math.max(0, (dh - this.cropViewport) / 2);
+    this.cropPanX.set(Math.min(maxX, Math.max(-maxX, this.cropPanX())));
+    this.cropPanY.set(Math.min(maxY, Math.max(-maxY, this.cropPanY())));
+  }
+
+  cancelCrop() {
+    if (this.cropApplying()) return;
+    this.cropOpen.set(false);
+    this.cropRawFile = null;
+    this.revokeCropSrc();
+    this.cropDragging = false;
+  }
+
+  async applyCrop() {
+    if (!this.cropRawFile || this.cropApplying()) return;
+    this.cropApplying.set(true);
+    this.photoError.set('');
+    try {
+      const scale = this.cropBaseScale * this.cropZoom();
+      const displayW = this.cropNaturalW * scale;
+      const displayH = this.cropNaturalH * scale;
+      const left = (this.cropViewport - displayW) / 2 + this.cropPanX();
+      const top = (this.cropViewport - displayH) / 2 + this.cropPanY();
+      const sx = Math.max(0, -left / scale);
+      const sy = Math.max(0, -top / scale);
+      const sw = Math.min(this.cropNaturalW - sx, this.cropViewport / scale);
+      const sh = Math.min(this.cropNaturalH - sy, this.cropViewport / scale);
+      const side = Math.min(sw, sh);
+      const cropped = await cropImageRegionToFile(
+        this.cropRawFile,
+        { sx, sy, sw: side, sh: side },
+        1024,
+        0.9,
+        this.cropRawFile.name,
+      );
+      this.revokePreview();
+      this.photoFile = cropped;
+      this.preview.set(URL.createObjectURL(cropped));
+      if (this.isEdit && this.id) {
+        try {
+          const dataUrl = await fileToDataUrl(cropped);
+          cachePetPhotoUrl(this.id, dataUrl);
+        } catch {
+          /* ignore */
+        }
+      }
+      this.cropOpen.set(false);
+      this.cropRawFile = null;
+      this.revokeCropSrc();
+      this.error.set('');
+    } catch {
+      this.photoError.set('Could not crop that image. Try another photo.');
+    } finally {
+      this.cropApplying.set(false);
+    }
+  }
+
+  docAccept(): string {
+    return this.docCategories.find((c) => c.id === this.pendingDocCategory)?.accept || 'image/*,.pdf';
+  }
+
+  prettySize(bytes: number): string {
+    if (!bytes) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  onExtraDocs(ev: Event) {
+    const input = ev.target as HTMLInputElement;
+    const files = Array.from(input.files || []);
+    input.value = '';
+    this.docError.set('');
+    if (!files.length) return;
+
+    const next = [...this.pendingDocs];
+    for (const file of files) {
+      if (!isAllowedPetDocument(file)) {
+        this.docError.set(
+          file.size > MAX_PET_DOC_BYTES
+            ? `“${file.name}” is larger than ${Math.round(MAX_PET_DOC_BYTES / (1024 * 1024))} MB.`
+            : `“${file.name}” isn’t a supported file type.`,
+        );
+        continue;
+      }
+      if (next.length >= 12) {
+        this.docError.set('You can attach up to 12 documents here. Add more later from Documents.');
+        break;
+      }
+      next.push({
+        key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${file.name}`,
+        file,
+        category: this.pendingDocCategory,
+      });
+    }
+    this.pendingDocs = next;
+  }
+
+  removePendingDoc(key: string) {
+    this.pendingDocs = this.pendingDocs.filter((d) => d.key !== key);
+  }
+
+  async onFile(ev: Event) {
     const input = ev.target as HTMLInputElement;
     const file = input.files?.[0] || null;
     this.photoError.set('');
-    if (this.preview()) URL.revokeObjectURL(this.preview());
-    this.preview.set('');
-    this.photoFile = null;
+    input.value = '';
 
     if (!file) return;
 
     const typeOk =
+      file.type.startsWith('image/') ||
       this.allowedPhotoTypes.includes(file.type) ||
-      /\.(jpe?g|png|webp)$/i.test(file.name);
+      /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(file.name);
     if (!typeOk) {
-      this.photoError.set('Please choose a JPG, PNG, or WEBP image.');
-      input.value = '';
+      this.photoError.set('Please choose an image file.');
       return;
     }
     if (file.size > this.maxPhotoBytes) {
       this.photoError.set('Photo must be 5 MB or smaller.');
-      input.value = '';
       return;
     }
 
-    this.photoFile = file;
-    this.preview.set(URL.createObjectURL(file));
+    try {
+      const objectUrl = URL.createObjectURL(file);
+      const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth || img.width, h: img.naturalHeight || img.height });
+        img.onerror = () => reject(new Error('Could not read image'));
+        img.src = objectUrl;
+      });
+      if (!dims.w || !dims.h) {
+        URL.revokeObjectURL(objectUrl);
+        this.photoError.set('Could not read that image. Try another file.');
+        return;
+      }
+      this.revokeCropSrc();
+      this.cropRawFile = file;
+      this.cropNaturalW = dims.w;
+      this.cropNaturalH = dims.h;
+      this.cropBaseScale = Math.max(this.cropViewport / dims.w, this.cropViewport / dims.h);
+      this.cropZoom.set(1);
+      this.cropPanX.set(0);
+      this.cropPanY.set(0);
+      this.cropSrc.set(objectUrl);
+      this.cropOpen.set(true);
+    } catch {
+      this.photoError.set('Could not open that image. Try a JPG or PNG.');
+    }
   }
 
   async save() {
-    if (!this.step1Valid()) {
+    if (this.cropOpen()) {
+      this.error.set('Finish cropping the photo first, or cancel.');
+      return;
+    }
+    this.hydrateIdentityFields();
+    if (this.isEdit) {
+      if (!String(this.model.name || '').trim() || !this.resolvedSpecies()) {
+        this.error.set('Name and species are required.');
+        return;
+      }
+    } else if (!this.step1Valid()) {
       this.error.set('Please fill in Name, Species, Sex, and Age / date of birth.');
-      if (!this.isEdit) this.stage.set(1);
+      this.stage.set(1);
       return;
     }
     if (!this.microchipValid()) {
@@ -707,20 +1181,82 @@ export class PetFormComponent implements OnInit {
     this.ok.set('');
     try {
       this.model.species = this.resolvedSpecies();
+      if (!this.model.gender && this.model.sex) this.model.gender = this.model.sex;
+      if (!this.model.ageOrDob) {
+        this.model.ageOrDob = String(
+          this.model.age || this.model.dob || this.model.dateOfBirth || '',
+        ).trim();
+      }
       const body = { ...this.model };
       delete body.photoUrl;
       const saved = this.isEdit
         ? await this.api.updatePet(this.id, body)
         : await this.api.createPet(body);
-      if (this.photoFile && saved?.id) {
+      const petId = String(saved?.id || this.id || '').trim();
+      if (!petId) {
+        throw new Error('Pet saved but no id was returned — cannot upload photo.');
+      }
+
+      let photoUrl = resolvePetPhotoUrl(saved) || '';
+      if (this.photoFile) {
         try {
-          await this.api.uploadPetPhoto(saved.id, this.photoFile);
-        } catch {
-          this.ok.set('Pet saved — photo upload failed, you can retry from Edit.');
+          const uploaded = await this.api.uploadPetPhoto(petId, this.photoFile);
+          photoUrl = resolvePetPhotoUrl(uploaded) || photoUrl;
+          if (!photoUrl) {
+            photoUrl = await fileToDataUrl(this.photoFile);
+          }
+          cachePetPhotoUrl(petId, photoUrl);
+          this.model.photoUrl = photoUrl;
+          if (this.preview()) URL.revokeObjectURL(this.preview());
+          this.preview.set(photoUrl);
+        } catch (photoErr: any) {
+          try {
+            const local = this.preview() || (await fileToDataUrl(this.photoFile));
+            cachePetPhotoUrl(petId, local);
+            photoUrl = local;
+          } catch {
+            /* ignore */
+          }
+          const msg =
+            photoErr?.error?.message ||
+            photoErr?.message ||
+            'Photo could not be saved to the server';
+          this.error.set(
+            /route not found/i.test(String(msg))
+              ? 'Pet details saved, but the photo upload API is missing on the server. See API_README.md.'
+              : `Pet details saved, but photo upload failed: ${msg}`,
+          );
+          this.activePet.set(petId);
+          return;
         }
       }
-      if (saved?.id) this.activePet.set(saved.id);
-      await this.router.navigate(['/pets', saved.id]);
+
+      if (this.pendingDocs.length) {
+        const result = await this.api.uploadPetDocuments(
+          petId,
+          this.pendingDocs.map((d) => ({ file: d.file, category: d.category })),
+        );
+        if (result.failed) {
+          const detail = result.errors.slice(0, 2).join(' · ');
+          this.error.set(
+            result.ok
+              ? `Pet saved. ${result.ok} document(s) uploaded, ${result.failed} failed. ${detail}`
+              : /route not found/i.test(detail)
+                ? 'Pet saved, but document upload API is missing on the server. See API_README.md.'
+                : `Pet saved, but documents failed to upload. ${detail}`,
+          );
+          this.activePet.set(petId);
+          if (!result.ok) return;
+          // Partial success — still navigate, but user saw the warning briefly; keep ok message via state
+        } else {
+          this.pendingDocs = [];
+        }
+      }
+
+      this.activePet.set(petId);
+      await this.router.navigate(['/pets', petId], {
+        state: photoUrl ? { photoUrl } : undefined,
+      });
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Save failed');
     } finally {

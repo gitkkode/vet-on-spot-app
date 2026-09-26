@@ -3,14 +3,18 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { BookingGateService } from '../../services/booking-gate.service';
 import { applyPendingEditsToList, normalizeBookingsList } from '../../utils/booking-pending';
+import { displayPetName, petInitial as petInitialFn, titleCase } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 type FilterTab = 'upcoming' | 'past' | 'all';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-bookings-list',
   template: `
+    <vos-back-button />
+
     <header class="head">
       <div>
         <p class="kicker">Your care timeline</p>
@@ -532,21 +536,15 @@ export class BookingsListComponent implements OnInit {
   }
 
   displayPetName(name: string | null | undefined): string {
-    return this.titleCase(name) || 'Visit';
+    return displayPetName(name, 'Visit');
   }
 
   petInitial(name: string | null | undefined): string {
-    const n = String(name || '?').trim();
-    return (n.charAt(0) || '?').toUpperCase();
+    return petInitialFn(name);
   }
 
   private titleCase(v: string | null | undefined): string {
-    const raw = String(v || '').trim();
-    if (!raw) return '';
-    return raw
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
+    return titleCase(v);
   }
 
   prettyWhen(dateStr?: string | null, timeStr?: string | null): string {

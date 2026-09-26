@@ -3,13 +3,16 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { BookingGateService } from '../../services/booking-gate.service';
+import { resolvePetPhotoUrl, cachePetPhotoUrl } from '../../utils/pet-photo';
+import { petInitial, titleCase } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-pet-detail',
   template: `
-    <a routerLink="/pets" class="back">← Pets</a>
+    <vos-back-button [fallback]="'/pets'" fallbackLabel="Pets" />
 
     @if (loading()) {
       <div class="vos-skel hero-skel"></div>
@@ -19,13 +22,13 @@ import { BookingGateService } from '../../services/booking-gate.service';
       <header class="hero">
         <div class="hero__glow" aria-hidden="true"></div>
         <div class="portrait">
-          @if (p.photoUrl) {
-            <img [src]="p.photoUrl" [alt]="p.name || 'Pet'" />
+          @if (petPhotoUrl(p)) {
+            <img [src]="petPhotoUrl(p)" [alt]="displayName(p.name) || 'Pet'" (error)="onPhotoError()" />
           } @else {
-            <span>{{ (p.name || '?').charAt(0) }}</span>
+            <span>{{ petInitial(p.name) }}</span>
           }
         </div>
-        <h1>{{ p.name || 'Your pet' }}</h1>
+        <h1>{{ displayName(p.name) || 'Your pet' }}</h1>
         <p class="hero__meta">{{ line(p) }}</p>
         <div class="hero__cta">
           @if (bookingBlocked(p.id)) {
@@ -43,7 +46,7 @@ import { BookingGateService } from '../../services/booking-gate.service';
       </header>
 
       <section class="manage" aria-label="Care shortcuts">
-        <h2>Take care of {{ p.name || 'them' }}</h2>
+        <h2>Take care of {{ displayName(p.name) || 'them' }}</h2>
         <div class="grid">
           <a class="act act--dark" [routerLink]="['/pets', p.id, 'passport']">
             <strong>Pet Passport</strong>
@@ -100,10 +103,10 @@ import { BookingGateService } from '../../services/booking-gate.service';
             aria-labelledby="remove-pet-title"
             (click)="$event.stopPropagation()"
           >
-            <h2 id="remove-pet-title">Remove {{ p.name || 'this pet' }}?</h2>
+            <h2 id="remove-pet-title">Remove {{ displayName(p.name) || 'this pet' }}?</h2>
             <p>
               This requests removal of
-              <strong>{{ p.name || 'this pet' }}’s</strong>
+              <strong>{{ displayName(p.name) || 'this pet' }}’s</strong>
               profile from your account. We’ll notify the care team if we can’t complete it instantly.
             </p>
             @if (removeError()) {
@@ -161,7 +164,7 @@ import { BookingGateService } from '../../services/booking-gate.service';
       font-family: var(--vos-display); font-size: 2.4rem; font-weight: 700;
       border: 3px solid rgba(255,255,255,0.35);
     }
-    .portrait img { width: 100%; height: 100%; object-fit: cover; }
+    .portrait img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
     .hero h1 {
       margin: 0 0 8px;
       font-family: var(--vos-display);
@@ -356,6 +359,7 @@ export class PetDetailComponent implements OnInit {
   readonly removeOpen = signal(false);
   readonly removing = signal(false);
   readonly removeError = signal('');
+  readonly photoBroken = signal(false);
   private id = '';
 
   constructor(
@@ -372,12 +376,35 @@ export class PetDetailComponent implements OnInit {
     void this.bookingGate.refresh();
   }
 
+  petInitial = petInitial;
+  displayName(name: string | null | undefined): string {
+    return titleCase(name);
+  }
+
   bookingBlocked(petId: string): boolean {
     return this.bookingGate.isBlocked(petId, this.pet()?.name);
   }
 
   line(p: any): string {
-    return [p.species, p.breed, p.gender || p.sex].filter(Boolean).join(' · ') || 'Pet profile';
+    const species = this.prettySpecies(p.species);
+    const breed = titleCase(p.breed);
+    const gender = titleCase(p.gender || p.sex);
+    return [species, breed, gender].filter(Boolean).join(' · ') || 'Pet profile';
+  }
+
+  private prettySpecies(species: string | null | undefined): string {
+    const s = String(species || '').trim();
+    if (!s || /^other$/i.test(s)) return '';
+    return titleCase(s);
+  }
+
+  petPhotoUrl(p: any): string {
+    if (this.photoBroken()) return '';
+    return resolvePetPhotoUrl(p);
+  }
+
+  onPhotoError() {
+    this.photoBroken.set(true);
   }
 
   openRemove() {
@@ -406,8 +433,7 @@ export class PetDetailComponent implements OnInit {
 
       if (result.via === 'api') {
         try {
-          const raw = await this.api.pets();
-          const remaining = Array.isArray(raw) ? raw : raw?.pets || [];
+          const remaining = (await this.api.pets()) || [];
           this.activePet.syncFromPets(remaining);
         } catch {
           this.activePet.set(null);
@@ -446,8 +472,17 @@ export class PetDetailComponent implements OnInit {
   async load() {
     this.loading.set(true);
     this.error.set('');
+    this.photoBroken.set(false);
     try {
       const p = await this.api.pet(this.id);
+      const navPhoto =
+        typeof history !== 'undefined'
+          ? String((history.state as any)?.photoUrl || '').trim()
+          : '';
+      if (navPhoto && !resolvePetPhotoUrl(p)) {
+        (p as any).photoUrl = navPhoto;
+        cachePetPhotoUrl(this.id, navPhoto);
+      }
       this.pet.set(p);
       if (p?.id) this.activePet.set(p.id);
     } catch (e: any) {

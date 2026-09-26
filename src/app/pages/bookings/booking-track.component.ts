@@ -1,16 +1,15 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent, VosTitleCasePipe],
   selector: 'app-booking-track',
   template: `
-    <a [routerLink]="['/bookings', id]" class="vos-back">
-      <span class="vos-back__chev" aria-hidden="true">‹</span>
-      Appointment
-    </a>
+    <vos-back-button [fallback]="['/bookings', id]" fallbackLabel="Appointment" />
 
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -57,7 +56,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
       <article class="summary">
         <div class="summary__row">
           <em>Pet</em>
-          <strong>{{ d.booking?.petName || 'Your pet' }}</strong>
+          <strong>{{ d.booking?.petName | vosTitleCase:'Your pet' }}</strong>
         </div>
         <div class="summary__row">
           <em>When</em>

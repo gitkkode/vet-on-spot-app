@@ -7,13 +7,14 @@ import { ActivePetService } from '../../services/active-pet.service';
 import { parsePetWeight, petInitial, titleCase } from '../../utils/health-records';
 import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
 import { VosDatePickerComponent } from '../../shared/vos-date-picker.component';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule, VosSelectComponent, VosDatePickerComponent],
+  imports: [RouterLink, FormsModule, VosSelectComponent, VosDatePickerComponent, VosBackButtonComponent],
   selector: 'app-weight-trend',
   template: `
-    <a class="vos-back" [routerLink]="['/pets', petId, 'health']">← Health</a>
+    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
 
     <header class="head">
       <span class="avatar" aria-hidden="true">{{ petInitial(petName()) }}</span>
@@ -345,6 +346,7 @@ export class WeightTrendComponent implements OnInit, OnDestroy {
     try {
       try {
         await this.api.addWeight(this.petId, body);
+        this.ok.set('Weight saved.');
       } catch {
         // Persist on pet profile + local history if vitals POST isn't available
         await this.api.updatePet(this.petId, { weight: `${value} ${this.draftUnit}` });
@@ -356,8 +358,10 @@ export class WeightTrendComponent implements OnInit, OnDestroy {
           source: 'manual',
         });
         this.writeLocal(local);
+        this.ok.set(
+          'Weight saved on this device. Trend sync needs POST /customers/me/pets/:id/vitals/weight (see API_README).',
+        );
       }
-      this.ok.set('Weight saved.');
       this.draftValue = null;
       await this.load();
     } catch (e: any) {

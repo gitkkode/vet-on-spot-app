@@ -19,10 +19,19 @@ declare global {
 
 const SCRIPT_SRC = 'https://verify.msg91.com/otp-provider.js';
 
+/** MSG91 custom-widget channel codes (string). */
+export const MSG91_CHANNELS = {
+  sms: '11',
+  voice: '4',
+  email: '3',
+  whatsapp: '12',
+} as const;
+
 @Injectable({ providedIn: 'root' })
 export class Msg91OtpService {
   private ready: Promise<void> | null = null;
   private lastReqId: string | null = null;
+  private lastIdentifier: string | null = null;
 
   private get config() {
     return environment.msg91;
@@ -113,6 +122,7 @@ export class Msg91OtpService {
   /** Identifier must include country code without + (e.g. 9198XXXXXXXX). */
   async sendOtp(identifier: string): Promise<unknown> {
     await this.ensureReady();
+    this.lastIdentifier = identifier;
     return new Promise((resolve, reject) => {
       window.sendOtp!(
         identifier,
@@ -145,9 +155,35 @@ export class Msg91OtpService {
     });
   }
 
-  async retryOtp(channel: string | null = null): Promise<unknown> {
+  /**
+   * Resend OTP via MSG91.
+   * Custom widget configs require an explicit channel (SMS = '11').
+   * Falls back to a fresh sendOtp if retry fails and we still have the identifier.
+   */
+  async retryOtp(channel?: string | null): Promise<unknown> {
     await this.ensureReady();
+    const resolved =
+      channel === undefined
+        ? (this.config.retryChannel ?? MSG91_CHANNELS.sms)
+        : channel;
+
+    try {
+      return await this.retryOtpOnce(resolved);
+    } catch (err) {
+      // If channel/reqId issues persist, re-send on the same number.
+      if (this.lastIdentifier) {
+        return this.sendOtp(this.lastIdentifier);
+      }
+      throw err;
+    }
+  }
+
+  private retryOtpOnce(channel: string | null): Promise<unknown> {
     return new Promise((resolve, reject) => {
+      if (typeof window.retryOtp !== 'function') {
+        reject(new Error('MSG91 retry is not available'));
+        return;
+      }
       window.retryOtp!(
         channel,
         (data) => {

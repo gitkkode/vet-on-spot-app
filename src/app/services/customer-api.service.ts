@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { normalizePetRecord, normalizePetsList, resolvePetPhotoUrl, unwrapPetPayload, cachePetPhotoUrl, fileToDataUrl, getCachedPetPhotoUrl } from '../utils/pet-photo';
 
 @Injectable({ providedIn: 'root' })
 export class CustomerApiService {
@@ -37,16 +38,37 @@ export class CustomerApiService {
   }
 
   pets() {
-    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/pets`)));
+    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/pets`))).then((d) =>
+      normalizePetsList(d),
+    );
   }
   pet(id: string) {
-    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/pets/${id}`)));
+    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/pets/${id}`))).then(
+      (d) => {
+        const flat = unwrapPetPayload(d) || d;
+        return normalizePetRecord(flat) || flat;
+      },
+    );
   }
   createPet(body: Record<string, unknown>) {
-    return this.data(firstValueFrom(this.http.post<any>(`${this.base}/customers/me/pets`, body)));
+    return this.data(firstValueFrom(this.http.post<any>(`${this.base}/customers/me/pets`, body))).then(
+      (d) => {
+        const flat = unwrapPetPayload(d) || d;
+        return normalizePetRecord(flat) || flat;
+      },
+    );
   }
   updatePet(id: string, body: Record<string, unknown>) {
-    return this.data(firstValueFrom(this.http.patch<any>(`${this.base}/customers/me/pets/${id}`, body)));
+    return this.data(firstValueFrom(this.http.patch<any>(`${this.base}/customers/me/pets/${id}`, body))).then(
+      (d) => {
+        const flat = unwrapPetPayload(d) || d;
+        // PATCH responses often omit id — keep caller's id so photo upload can proceed
+        if (flat && typeof flat === 'object' && !flat.id) {
+          (flat as any).id = id;
+        }
+        return normalizePetRecord(flat as any) || flat;
+      },
+    );
   }
   /**
    * Remove a pet profile. Production may not expose DELETE — tries alternate
@@ -169,12 +191,147 @@ export class CustomerApiService {
     }
   }
 
-  uploadPetPhoto(petId: string, file: File) {
-    const fd = new FormData();
-    fd.append('file', file);
-    return this.data(
-      firstValueFrom(this.http.post<any>(`${this.base}/customers/me/pets/${petId}/photo`, fd)),
-    );
+  /**
+   * Upload a pet profile photo.
+   * Tries multipart field/path variants, then JSON base64 PATCH fallbacks.
+   * Always prefers a fresh GET pet after a successful write.
+   */
+  async uploadPetPhoto(petId: string, file: File): Promise<{ id: string; photoUrl: string; [k: string]: unknown }> {
+    const id = String(petId || '').trim();
+    if (!id) throw new Error('Missing pet id for photo upload');
+    if (!file) throw new Error('Missing photo file');
+
+    const encoded = encodeURIComponent(id);
+    const petBase = `${this.base}/customers/me/pets/${encoded}`;
+    const paths = [
+      `${petBase}/photo`,
+      `${petBase}/avatar`,
+      `${petBase}/image`,
+      `${petBase}/profile-photo`,
+      `${petBase}/upload-photo`,
+      `${petBase}/photos`,
+    ];
+    const fields = ['file', 'photo', 'image', 'avatar', 'profilePhoto', 'files'];
+    let lastErr: any = null;
+    let wroteOk = false;
+
+    const finish = async (seed?: any): Promise<{ id: string; photoUrl: string; [k: string]: unknown }> => {
+      let photoUrl =
+        resolvePetPhotoUrl(seed) ||
+        resolvePetPhotoUrl(seed?.pet) ||
+        resolvePetPhotoUrl(seed?.file) ||
+        '';
+      try {
+        const fresh = await this.pet(id);
+        const fromGet = resolvePetPhotoUrl(fresh);
+        if (fromGet) photoUrl = fromGet;
+        if (photoUrl) cachePetPhotoUrl(id, photoUrl);
+        return {
+          ...(fresh && typeof fresh === 'object' ? fresh : {}),
+          id,
+          photoUrl: photoUrl || getCachedPetPhotoUrl(id) || '',
+        };
+      } catch {
+        if (photoUrl) cachePetPhotoUrl(id, photoUrl);
+        return { id, photoUrl: photoUrl || getCachedPetPhotoUrl(id) || '' };
+      }
+    };
+
+    for (const path of paths) {
+      for (const field of fields) {
+        try {
+          const fd = new FormData();
+          fd.append(field, file, file.name || 'pet-photo.jpg');
+          if (field === 'files') fd.append('category', 'pet_photo');
+          const res = await firstValueFrom(this.http.post<any>(path, fd));
+          if (res && typeof res === 'object' && res.success === false) {
+            lastErr = res;
+            const msg = String(res.message || '').toLowerCase();
+            if (/route not found|not found|method/.test(msg)) break; // next path
+            continue; // next field
+          }
+          wroteOk = true;
+          const data = res?.data !== undefined ? res.data : res;
+          const result = await finish(data);
+          if (result.photoUrl) return result;
+          // Write accepted but no URL yet — keep trying other contracts only if empty
+          lastErr = null;
+        } catch (e: any) {
+          lastErr = e;
+          if (e?.status === 401 || e?.status === 403) throw e;
+          if (this.isMissingRouteError(e)) break; // next path
+          // 400/415/422 often mean wrong field name — try next field
+          if ([400, 415, 422].includes(e?.status)) continue;
+          // Other errors on an existing route: stop this path
+          break;
+        }
+      }
+      if (wroteOk) {
+        // Accepted by API — stop probing other paths; fill URL from GET / cache
+        const result = await finish();
+        if (!result.photoUrl) {
+          try {
+            const dataUrl = await fileToDataUrl(file);
+            cachePetPhotoUrl(id, dataUrl);
+            result.photoUrl = dataUrl;
+          } catch {
+            /* ignore */
+          }
+        }
+        return result;
+      }
+    }
+
+    // JSON / base64 fallbacks via PATCH pet
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const payloads: Record<string, unknown>[] = [
+        { photoUrl: dataUrl },
+        { photo: dataUrl },
+        { avatarUrl: dataUrl },
+        { profilePhotoUrl: dataUrl },
+        { profilePhoto: dataUrl },
+        { photoBase64: dataUrl.replace(/^data:[^;]+;base64,/, '') },
+        { imageBase64: dataUrl.replace(/^data:[^;]+;base64,/, '') },
+      ];
+      for (const body of payloads) {
+        try {
+          const updated = await this.updatePet(id, body);
+          const url = resolvePetPhotoUrl(updated) || dataUrl;
+          cachePetPhotoUrl(id, url);
+          wroteOk = true;
+          const result = await finish({ ...updated, photoUrl: url });
+          return { ...result, photoUrl: result.photoUrl || dataUrl };
+        } catch (e: any) {
+          lastErr = e;
+          if (e?.status === 401 || e?.status === 403) throw e;
+          continue;
+        }
+      }
+      // All server writes failed — cache locally for this device, then fail so the UI can warn
+      cachePetPhotoUrl(id, dataUrl);
+      throw Object.assign(
+        new Error(
+          lastErr?.error?.message ||
+            lastErr?.message ||
+            'Photo upload API missing or rejected — photo kept on this device only',
+        ),
+        { error: lastErr?.error || lastErr, status: lastErr?.status || 404, localPhotoUrl: dataUrl },
+      );
+    } catch (e: any) {
+      lastErr = e;
+      if (e?.localPhotoUrl) throw e;
+    }
+
+    const msg =
+      lastErr?.error?.message ||
+      lastErr?.message ||
+      'Photo upload failed — the photo API may be missing on the server';
+    throw Object.assign(new Error(String(msg)), {
+      error: lastErr?.error || lastErr,
+      status: lastErr?.status,
+      localPhotoUrl: lastErr?.localPhotoUrl,
+    });
   }
 
   doctors() {
@@ -295,7 +452,9 @@ export class CustomerApiService {
 
   medications(petId?: string | null) {
     const q = petId ? `?petId=${encodeURIComponent(petId)}` : '';
-    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/medications${q}`)));
+    return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/medications${q}`))).then(
+      (d) => this.listOf(d, ['medications', 'items', 'data', 'results']),
+    );
   }
   createMedication(body: Record<string, unknown>) {
     return this.data(firstValueFrom(this.http.post<any>(`${this.base}/customers/me/medications`, body)));
@@ -316,7 +475,105 @@ export class CustomerApiService {
     );
   }
 
+  /**
+   * Upload a customer-owned document for a pet.
+   * Tries pet-scoped and account-scoped multipart routes with several field names.
+   */
+  async uploadPetDocument(
+    petId: string,
+    file: File,
+    category = 'other',
+  ): Promise<{ id?: string; petId: string; category: string; fileName: string; [k: string]: unknown }> {
+    const id = String(petId || '').trim();
+    if (!id) throw new Error('Missing pet id for document upload');
+    if (!file) throw new Error('Missing document file');
+    const cat = String(category || 'other').trim() || 'other';
+    const encoded = encodeURIComponent(id);
+    const petBase = `${this.base}/customers/me/pets/${encoded}`;
+    const paths: Array<{ url: string; includePetIdField: boolean }> = [
+      { url: `${petBase}/documents`, includePetIdField: false },
+      { url: `${petBase}/files`, includePetIdField: false },
+      { url: `${petBase}/upload`, includePetIdField: false },
+      { url: `${this.base}/customers/me/documents`, includePetIdField: true },
+      { url: `${this.base}/customers/me/files`, includePetIdField: true },
+      { url: `${this.base}/customers/me/documents/upload`, includePetIdField: true },
+    ];
+    const fields = ['file', 'document', 'files', 'attachment', 'upload'];
+    let lastErr: any = null;
+
+    for (const path of paths) {
+      for (const field of fields) {
+        try {
+          const fd = new FormData();
+          fd.append(field, file, file.name || 'document');
+          fd.append('category', cat);
+          fd.append('type', cat);
+          if (path.includePetIdField) {
+            fd.append('petId', id);
+            fd.append('pet_id', id);
+          }
+          const res = await firstValueFrom(this.http.post<any>(path.url, fd));
+          if (res && typeof res === 'object' && res.success === false) {
+            lastErr = res;
+            const msg = String(res.message || '').toLowerCase();
+            if (/route not found|not found|method/.test(msg)) break;
+            continue;
+          }
+          const data = res?.data !== undefined ? res.data : res;
+          const doc = Array.isArray(data)
+            ? data[0]
+            : data?.document || data?.file || data?.item || data;
+          return {
+            ...(doc && typeof doc === 'object' ? doc : {}),
+            id: doc?.id || data?.id,
+            petId: id,
+            category: cat,
+            fileName: doc?.fileName || doc?.name || file.name,
+          };
+        } catch (e: any) {
+          lastErr = e;
+          if (e?.status === 401 || e?.status === 403) throw e;
+          if (this.isMissingRouteError(e)) break;
+          if ([400, 415, 422].includes(e?.status)) continue;
+          break;
+        }
+      }
+    }
+
+    const msg =
+      lastErr?.error?.message ||
+      lastErr?.message ||
+      'Document upload failed — the documents API may be missing on the server';
+    throw Object.assign(new Error(String(msg)), {
+      error: lastErr?.error || lastErr,
+      status: lastErr?.status,
+    });
+  }
+
+  /** Upload several documents; returns per-file results (does not throw on partial failure). */
+  async uploadPetDocuments(
+    petId: string,
+    items: Array<{ file: File; category: string }>,
+  ): Promise<{ ok: number; failed: number; errors: string[] }> {
+    let ok = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    for (const item of items) {
+      try {
+        await this.uploadPetDocument(petId, item.file, item.category);
+        ok += 1;
+      } catch (e: any) {
+        failed += 1;
+        errors.push(
+          `${item.file?.name || 'file'}: ${e?.error?.message || e?.message || 'upload failed'}`,
+        );
+      }
+    }
+    return { ok, failed, errors };
+  }
+
   supportTickets() {
+
     return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/support`))).then((d) =>
       this.listOf(d, ['tickets', 'items', 'data', 'support']),
     );

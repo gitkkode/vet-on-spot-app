@@ -5,6 +5,7 @@ import { CustomerApiService } from '../services/customer-api.service';
 import { ActivePetService } from '../services/active-pet.service';
 import { AuthService } from '../services/auth.service';
 import { BookingGateService } from '../services/booking-gate.service';
+import { titleCase } from '../utils/health-records';
 
 @Component({
   selector: 'app-shell',
@@ -44,7 +45,23 @@ import { BookingGateService } from '../services/booking-gate.service';
               [attr.title]="unreadTitle()"
               (click)="closeMenu()"
             >
-              <span class="portal-top__bell" aria-hidden="true"></span>
+              <svg class="portal-top__bell" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.85"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M6.2 9.6a5.8 5.8 0 0 1 11.6 0c0 3.4.9 4.6 1.6 5.6.3.4 0 1-.5 1H5.1c-.5 0-.8-.6-.5-1 .7-1 1.6-2.2 1.6-5.6Z"
+                />
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.85"
+                  stroke-linecap="round"
+                  d="M10 17.8a2 2 0 0 0 4 0"
+                />
+              </svg>
               @if (unread() > 0) {
                 <span class="portal-top__count">{{ unreadLabel() }}</span>
               }
@@ -292,16 +309,10 @@ import { BookingGateService } from '../services/booking-gate.service';
     }
     .portal-top__icon:hover { border-color: rgba(253, 74, 41, 0.35); }
     .portal-top__bell {
-      width: 16px; height: 16px;
-      border: 2px solid var(--vos-ink);
-      border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
-      position: relative;
-    }
-    .portal-top__bell::after {
-      content: '';
-      position: absolute; top: -5px; left: 50%;
-      width: 4px; height: 4px; margin-left: -2px;
-      border-radius: 50%; background: var(--vos-ink);
+      width: 20px;
+      height: 20px;
+      display: block;
+      color: var(--vos-ink);
     }
     .portal-top__count {
       position: absolute; top: 0; right: 0;
@@ -662,7 +673,7 @@ export class ShellComponent implements OnInit, OnDestroy {
       p?.customer?.fullName ||
       p?.customer?.name ||
       '';
-    return String(name).trim() || 'Pet parent';
+    return titleCase(name) || 'Pet parent';
   }
 
   displayMobile(): string {

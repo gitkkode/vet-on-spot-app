@@ -4,13 +4,14 @@ import { Subscription } from 'rxjs';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { petInitial, titleCase } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-diagnostics',
   template: `
-    <a [routerLink]="petFilter ? ['/pets', petFilter, 'health'] : '/health'" class="vos-back">← Health</a>
+    <vos-back-button [fallback]="petFilter ? ['/pets', petFilter, 'health'] : '/health'" fallbackLabel="Health" />
 
     <header class="head">
       @if (activeName()) {

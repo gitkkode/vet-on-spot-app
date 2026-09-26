@@ -3,7 +3,9 @@ import { RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { BookingGateService } from '../../services/booking-gate.service';
-import { filterUpcomingBookings, normalizeBookingsList } from '../../utils/booking-pending';
+import { filterUpcomingBookings, normalizeBookingsList, bookingBlocksPet } from '../../utils/booking-pending';
+import { normalizePetRecord, normalizePetsList, resolvePetPhotoUrl } from '../../utils/pet-photo';
+import { displayPetName } from '../../utils/health-records';
 
 @Component({
   standalone: true,
@@ -130,7 +132,7 @@ import { filterUpcomingBookings, normalizeBookingsList } from '../../utils/booki
                   >
                     <span class="pet-chip__avatar">
                       @if (showPetPhoto(p)) {
-                        <img [src]="p.photoUrl" alt="" (error)="onPetPhotoError(p.id)" />
+                        <img [src]="petPhotoUrl(p)" alt="" (error)="onPetPhotoError(p.id)" />
                       } @else {
                         <span class="ph">{{ petInitial(p.name) }}</span>
                       }
@@ -215,7 +217,7 @@ import { filterUpcomingBookings, normalizeBookingsList } from '../../utils/booki
               @if (activeVisitForPet(); as visit) {
                 <a class="path" [routerLink]="['/bookings', visit.id]">
                   <strong>Open visit</strong>
-                  <span>{{ visit.petName || 'Active' }} · already booked</span>
+                  <span>{{ displayPetName(visit.petName, 'Active') }} · already booked</span>
                 </a>
               } @else if (bookingBlocked()) {
                 <a class="path" routerLink="/bookings">
@@ -883,10 +885,14 @@ import { filterUpcomingBookings, normalizeBookingsList } from '../../utils/booki
       text-overflow: ellipsis;
     }
     .pet-chip.on .pet-chip__name { color: var(--vos-ink); }
-    .pet-chip__avatar img,
-    .pet-chip__avatar .ph {
+    .pet-chip__avatar img {
       width: 100%; height: 100%;
       object-fit: cover;
+      object-position: center;
+      display: block;
+    }
+    .pet-chip__avatar .ph {
+      width: 100%; height: 100%;
       display: flex; align-items: center; justify-content: center;
       font-family: var(--vos-display);
       font-weight: 700; font-size: 1.15rem;
@@ -1395,13 +1401,8 @@ export class HomeComponent implements OnInit, AfterViewChecked {
     return this.displayPetName(fromProfile || 'there');
   }
 
-  displayPetName(name: string | null | undefined): string {
-    const raw = String(name || '').trim();
-    if (!raw) return 'Pet';
-    return raw
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
+  displayPetName(name: string | null | undefined, fallback = 'Pet'): string {
+    return displayPetName(name, fallback);
   }
 
   petInitial(name: string | null | undefined): string {
@@ -1409,8 +1410,13 @@ export class HomeComponent implements OnInit, AfterViewChecked {
     return (n.charAt(0) || '?').toUpperCase();
   }
 
-  showPetPhoto(p: { id?: string; photoUrl?: string | null }): boolean {
-    return !!(p?.photoUrl && p.id && !this.brokenPhotos().has(p.id));
+  showPetPhoto(p: { id?: string; photoUrl?: string | null } | null | undefined): boolean {
+    const url = this.petPhotoUrl(p);
+    return !!(url && p?.id && !this.brokenPhotos().has(p.id));
+  }
+
+  petPhotoUrl(p: { photoUrl?: string | null } | null | undefined): string {
+    return resolvePetPhotoUrl(p);
   }
 
   onPetPhotoError(id: string) {
@@ -1560,6 +1566,7 @@ export class HomeComponent implements OnInit, AfterViewChecked {
   }
 
   bookingBlocked(): boolean {
+    if (this.petAppointments().length > 0) return true;
     const h = this.home();
     return this.bookingGate.isBlocked(h?.activePet?.id, h?.activePet?.name);
   }
@@ -1609,14 +1616,7 @@ export class HomeComponent implements OnInit, AfterViewChecked {
   }
 
   private bookingBelongsToPet(b: any, petId: string, petName: string): boolean {
-    const bid = String(b?.petId || b?.pet?.id || '').trim();
-    if (petId && bid && bid === petId) return true;
-    if (petId && Array.isArray(b?.petIds) && b.petIds.some((x: any) => String(x) === petId)) {
-      return true;
-    }
-    const bName = this.normPetName(b?.petName);
-    if (petName && bName && bName === petName) return true;
-    return false;
+    return bookingBlocksPet(b, petId, petName);
   }
 
   private normPetName(name: string | null | undefined): string {
@@ -1871,7 +1871,9 @@ export class HomeComponent implements OnInit, AfterViewChecked {
     try {
       const id = petId || this.activePet.get();
       const data = await this.api.home(id);
-      this.activePet.syncFromPets(data.pets || [], data.activePet?.id || id);
+      const pets = normalizePetsList(data.pets || []);
+      const activePet = normalizePetRecord(data.activePet) || data.activePet;
+      this.activePet.syncFromPets(pets, activePet?.id || id);
       const upcoming = filterUpcomingBookings(
         normalizeBookingsList(data.upcoming || data.bookings || []),
       ).filter((b) => {
@@ -1882,8 +1884,11 @@ export class HomeComponent implements OnInit, AfterViewChecked {
       });
       this.home.set({
         ...data,
+        pets,
+        activePet,
         upcoming,
       });
+      this.brokenPhotos.set(new Set());
       this.petsOverflowDirty = true;
       // Sync Book CTAs from full bookings list — never clear blocks when home
       // upcoming is empty/mismatched (that was re-enabling Book incorrectly).

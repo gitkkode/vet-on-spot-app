@@ -2,13 +2,16 @@ import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
+import { petInitial } from '../../utils/health-records';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule],
+  imports: [RouterLink, FormsModule, VosBackButtonComponent, VosTitleCasePipe],
   selector: 'app-pet-passport',
   template: `
-    <a class="vos-back" [routerLink]="['/pets', petId, 'health']">← Health</a>
+    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
 
     @if (error()) {
       <div class="vos-err">
@@ -43,12 +46,12 @@ import { CustomerApiService } from '../../services/customer-api.service';
               @if (d.pet?.photoUrl) {
                 <img [src]="d.pet.photoUrl" alt="" />
               } @else {
-                {{ (d.pet?.name || '?').charAt(0) }}
+                {{ petInitial(d.pet?.name) }}
               }
             </div>
             <div class="pass__identity">
-              <p class="pass__species">{{ d.pet?.species || 'Pet' }} · {{ d.pet?.breed || 'Mixed' }}</p>
-              <h1>{{ d.pet?.name || 'Your pet' }}</h1>
+              <p class="pass__species">{{ d.pet?.species | vosTitleCase:'Pet' }} · {{ d.pet?.breed | vosTitleCase:'Mixed' }}</p>
+              <h1>{{ d.pet?.name | vosTitleCase:'Your pet' }}</h1>
               <p class="pass__ref">{{ d.reference || passportRef(d) }}</p>
             </div>
           </div>
@@ -529,6 +532,7 @@ export class PetPassportComponent implements OnInit {
   readonly inviting = signal(false);
   readonly sharing = signal(false);
   readonly copied = signal(false);
+  readonly petInitial = petInitial;
 
   constructor(
     private api: CustomerApiService,

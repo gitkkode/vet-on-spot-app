@@ -3,13 +3,15 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, VosBackButtonComponent, VosTitleCasePipe],
   selector: 'app-assistant',
   template: `
-    <a routerLink="/home" class="vos-back">← Home</a>
+    <vos-back-button />
     <header class="head">
       <p class="eyebrow">Records help</p>
       <h1>VetonSpot Assistant</h1>
@@ -27,7 +29,7 @@ import { ActivePetService } from '../../services/active-pet.service';
       <p class="label">Which pet?</p>
       @for (p of pets(); track p.id) {
         <button type="button" class="choice" [class.on]="petId === p.id" (click)="petId = p.id">
-          {{ p.name }}
+          {{ p.name | vosTitleCase }}
         </button>
       }
       @if (!pets().length) {
@@ -135,7 +137,7 @@ export class AssistantComponent implements OnInit {
   async loadPets() {
     try {
       const list = await this.api.pets();
-      this.pets.set(Array.isArray(list) ? list : list?.pets || []);
+      this.pets.set(Array.isArray(list) ? list : []);
       if (!this.petId && this.pets().length) {
         this.petId = this.activePet.get() || this.pets()[0].id;
       }

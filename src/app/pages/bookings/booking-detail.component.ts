@@ -5,6 +5,8 @@ import { CustomerApiService } from '../../services/customer-api.service';
 import { BookingGateService } from '../../services/booking-gate.service';
 import { VosDatePickerComponent } from '../../shared/vos-date-picker.component';
 import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
+import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { displayPetName, titleCase } from '../../utils/health-records';
 import {
   applyPendingEditToBooking,
   markBookingSuperseded,
@@ -31,10 +33,10 @@ type PendingEdit = PendingBookingEdit;
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule, VosDatePickerComponent, VosSelectComponent],
+  imports: [RouterLink, FormsModule, VosDatePickerComponent, VosSelectComponent, VosBackButtonComponent],
   selector: 'app-booking-detail',
   template: `
-    <a routerLink="/bookings" class="vos-back"><span class="vos-back__chev" aria-hidden="true">‹</span> Appointments</a>
+    <vos-back-button [fallback]="'/bookings'" fallbackLabel="Appointments" />
 
     @if (loading()) {
       <div class="vos-skel vos-skel--gloss hero-skel"></div>
@@ -52,6 +54,9 @@ type PendingEdit = PendingBookingEdit;
     } @else if (b(); as booking) {
       @if (justBooked()) {
         <div class="toast-ok" role="status">You’re booked — we’ll nudge you here as things move.</div>
+      }
+      @if (uploadWarn()) {
+        <div class="toast-warn" role="status">{{ uploadWarn() }}</div>
       }
       @if (editOk()) {
         <div class="toast-ok" role="status">{{ editOk() }}</div>
@@ -82,7 +87,7 @@ type PendingEdit = PendingBookingEdit;
             <span class="countdown" [class.countdown--soon]="countdownSoon()">{{ countdown() }}</span>
           }
         </div>
-        <h1>{{ booking.petName || 'Your pet' }}</h1>
+        <h1>{{ displayPetName(booking.petName) }}</h1>
         <span class="pill" [class.pill--pulse]="journeyLive()">
           <span class="pill__dot" aria-hidden="true"></span>
           {{ booking.customerStatus?.label || booking.status || 'Received' }}
@@ -195,7 +200,7 @@ type PendingEdit = PendingBookingEdit;
           </a>
           <a class="act" style="--i: 3" routerLink="/intake" [queryParams]="petQ(booking)">
             <span class="act__title">Something changed?</span>
-            <span class="act__sub">Update how {{ booking.petName || 'they' }} is feeling</span>
+            <span class="act__sub">Update how {{ displayPetName(booking.petName, 'they') }} is feeling</span>
           </a>
           <a class="act" style="--i: 4" routerLink="/support" [queryParams]="{ bookingId: booking.id }">
             <span class="act__title">Need help</span>
@@ -288,7 +293,7 @@ type PendingEdit = PendingBookingEdit;
             <h2 id="cancel-title">Cancel this appointment?</h2>
             <p>
               This will cancel
-              <strong>{{ booking.petName || 'your pet' }}’s</strong>
+              <strong>{{ displayPetName(booking.petName, 'your pet') }}’s</strong>
               visit on
               <strong>{{ prettyDate(booking.scheduledDate) }}</strong>
               @if (booking.scheduledTime) {
@@ -466,6 +471,16 @@ type PendingEdit = PendingBookingEdit;
       border: 1px solid rgba(31, 122, 76, 0.25);
       color: #1f7a4c;
       font-weight: 600;
+    }
+    .toast-warn {
+      margin: 0 0 14px;
+      padding: 12px 16px;
+      border-radius: 14px;
+      background: #fff7ed;
+      border: 1px solid rgba(253, 74, 41, 0.28);
+      color: var(--vos-ink);
+      font-weight: 600;
+      line-height: 1.4;
     }
     .pending-banner {
       margin: 0 0 14px;
@@ -1282,6 +1297,7 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
   readonly loading = signal(true);
   readonly error = signal('');
   readonly justBooked = signal(false);
+  readonly uploadWarn = signal('');
   readonly copied = signal(false);
   readonly refreshing = signal(false);
   readonly freshness = signal('Live');
@@ -1339,6 +1355,15 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
         this.route.snapshot.queryParamMap.get('booked') === '1' ||
           this.route.snapshot.queryParamMap.get('rescheduled') === '1',
       );
+      try {
+        const warn = sessionStorage.getItem('vos.booking.uploadWarn') || '';
+        if (warn) {
+          this.uploadWarn.set(warn);
+          sessionStorage.removeItem('vos.booking.uploadWarn');
+        }
+      } catch {
+        /* ignore */
+      }
       void this.load().then(() => {
         if (changed && this.route.snapshot.queryParamMap.get('edit') === '1') {
           this.openEdit();
@@ -1500,14 +1525,8 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
     });
   }
 
-  titleCase(v: string | null | undefined): string {
-    if (!v) return '';
-    return String(v)
-      .trim()
-      .split(/\s+/)
-      .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ''))
-      .join(' ');
-  }
+  displayPetName = displayPetName;
+  titleCase = titleCase;
 
   openEdit() {
     const booking = this.b();
