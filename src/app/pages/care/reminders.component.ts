@@ -8,39 +8,20 @@ import {
   remindersFromTimeline,
   titleCase,
 } from '../../utils/health-records';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
+import { HealthEmptyComponent } from '../../shared/health-empty.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent],
+  imports: [RouterLink, HealthShellComponent, HealthEmptyComponent],
   selector: 'app-reminders',
   template: `
-    <vos-back-button [fallback]="petId ? ['/pets', petId, 'health'] : '/health'" fallbackLabel="Health" />
-
-    <header class="head">
-      @if (petName()) {
-        <span class="avatar" aria-hidden="true">{{ petInitial(petName()) }}</span>
-      }
-      <div>
-        <p class="kicker">Health record</p>
-        <h1>
-          @if (petName()) {
-            {{ titleCase(petName()) }}’s Reminders
-          } @else {
-            Reminders
-          }
-        </h1>
-        <p class="lede">Follow-ups, boosters, and meds from your care timeline.</p>
-      </div>
-    </header>
-
-    <div class="switcher" role="tablist" aria-label="Switch pet">
-      @for (p of pets(); track p.id) {
-        <button type="button" class="chip" [class.on]="petId === p.id" (click)="switchPet(p.id)">
-          {{ titleCase(p.name) }}
-        </button>
-      }
-    </div>
+    <vos-health-shell
+      [petId]="petId"
+      section="reminders"
+      sectionTitle="Reminders"
+      lede="Follow-ups, boosters, and meds from your care timeline."
+    >
 
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -58,17 +39,15 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
     @if (loading()) {
       <div class="vos-skel"></div>
     } @else if (!items().length) {
-      <div class="empty">
-        <div class="empty__mark" aria-hidden="true"></div>
-        <h2>No open reminders</h2>
-        <p>After vaccines and follow-ups, care nudges show up here. You can refresh or check the timeline.</p>
-        <div class="empty__actions">
-          @if (petId) {
-            <button type="button" class="vos-btn" [disabled]="refreshing()" (click)="refresh()">Refresh now</button>
-            <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
-          }
-        </div>
-      </div>
+      <vos-health-empty
+        title="No open reminders"
+        message="After vaccines and follow-ups, care nudges show up here. You can refresh or check the timeline."
+      >
+        @if (petId) {
+          <button type="button" class="vos-btn" [disabled]="refreshing()" (click)="refresh()">Refresh now</button>
+          <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
+        }
+      </vos-health-empty>
     } @else {
       @if (fromVisits()) {
         <p class="hint">Suggested from completed visits — tap Refresh to sync official reminders from your care team.</p>
@@ -100,6 +79,7 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         </article>
       }
     }
+    </vos-health-shell>
   `,
   styles: [`
     .head { display: flex; gap: 14px; align-items: flex-start; margin: 8px 0 14px; }

@@ -1,17 +1,24 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { petInitial } from '../../utils/health-records';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
 import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
+import { rememberPassportShare, revokeCachedPassportShare, shareTokenOf } from '../../utils/passport-share';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule, VosBackButtonComponent, VosTitleCasePipe],
+  imports: [RouterLink, FormsModule, HealthShellComponent, VosTitleCasePipe],
   selector: 'app-pet-passport',
   template: `
-    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
+    <vos-health-shell
+      [petId]="petId"
+      section="passport"
+      sectionTitle="Passport"
+      lede="A shareable record of identity, visits, and care."
+    >
 
     @if (error()) {
       <div class="vos-err">
@@ -182,7 +189,7 @@ import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
               <button type="button" class="btn" (click)="copyShare(sh)">
                 {{ copied() ? 'Copied' : 'Copy link' }}
               </button>
-              <button type="button" class="ghost" (click)="revoke(sh.id)">Revoke access</button>
+              <button type="button" class="ghost" (click)="revoke(sh)">Revoke access</button>
             </div>
           </div>
         }
@@ -221,6 +228,7 @@ import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
         </div>
       </section>
     }
+    </vos-health-shell>
   `,
   styles: [`
     :host { display: block; }
@@ -517,8 +525,9 @@ import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
     }
   `],
 })
-export class PetPassportComponent implements OnInit {
+export class PetPassportComponent implements OnInit, OnDestroy {
   petId = '';
+  private sub?: Subscription;
   inviteEmail = '';
   shareHours = 72;
   readonly data = signal<any>(null);
@@ -540,8 +549,16 @@ export class PetPassportComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    this.petId = this.route.snapshot.paramMap.get('id') || '';
-    void this.load();
+    this.sub = this.route.paramMap.subscribe((pm) => {
+      const id = pm.get('id') || '';
+      if (!id || id === this.petId) return;
+      this.petId = id;
+      void this.load();
+    });
+  }
+
+  ngOnDestroy() {
+    this.sub?.unsubscribe();
   }
 
   passportRef(d: any): string {
@@ -640,8 +657,7 @@ export class PetPassportComponent implements OnInit {
   private appOrigin(): string {
     try {
       if (typeof window !== 'undefined' && window.location?.origin) {
-        const o = window.location.origin;
-        if (!/localhost|127\.0\.0\.1/.test(o)) return o;
+        return window.location.origin;
       }
     } catch {
       /* ignore */
@@ -650,13 +666,10 @@ export class PetPassportComponent implements OnInit {
   }
 
   shareUrl(sh: any): string {
-    const direct = String(sh?.url || sh?.shareUrl || sh?.link || sh?.shareLink || '').trim();
-    if (/^https?:\/\//i.test(direct)) return direct;
-    const token = String(sh?.token || sh?.shareToken || sh?.code || sh?.id || '').trim();
-    if (!token) return this.appOrigin();
-    if (/^https?:\/\//i.test(token)) return token;
-    if (direct.startsWith('/')) return `${this.appOrigin()}${direct}`;
-    return `${this.appOrigin()}/share/passport/${encodeURIComponent(token)}`;
+    const token = shareTokenOf(sh);
+    const origin = this.appOrigin();
+    if (!token) return origin;
+    return `${origin}/share/passport/${encodeURIComponent(token)}`;
   }
 
   async copyShare(sh: any) {
@@ -672,14 +685,16 @@ export class PetPassportComponent implements OnInit {
   }
 
   async load() {
+    const id = this.petId;
     this.loading.set(true);
     this.error.set('');
     try {
       const [passport, carers, pet] = await Promise.all([
-        this.api.passportFull(this.petId),
-        this.api.caregivers(this.petId).catch(() => []),
-        this.api.pet(this.petId).catch(() => null),
+        this.api.passportFull(id),
+        this.api.caregivers(id).catch(() => []),
+        this.api.pet(id).catch(() => null),
       ]);
+      if (id !== this.petId) return;
       const merged = {
         ...(passport || {}),
         pet: { ...(passport?.pet || {}), ...(pet || {}) },
@@ -694,9 +709,10 @@ export class PetPassportComponent implements OnInit {
             : [];
       this.caregivers.set(list);
     } catch (e: any) {
+      if (id !== this.petId) return;
       this.error.set(e?.error?.message || e?.message || 'Couldn’t load passport');
     } finally {
-      this.loading.set(false);
+      if (id === this.petId) this.loading.set(false);
     }
   }
 
@@ -709,7 +725,19 @@ export class PetPassportComponent implements OnInit {
       const row = await this.api.createPassportShare(this.petId, {
         expiresInHours: this.shareHours || 72,
       });
-      this.share.set(row);
+      const hours = Number(this.shareHours) || 72;
+      const expiresAt =
+        row?.expiresAt ||
+        row?.expires_at ||
+        new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+      const token = shareTokenOf(row);
+      rememberPassportShare({
+        token,
+        id: String(row?.id || row?.shareId || ''),
+        expiresAt,
+        passport: row?.passport || this.data(),
+      });
+      this.share.set({ ...(row || {}), token, expiresAt });
       const url = this.shareUrl(row);
       this.ok.set('Share link ready — copy and send it.');
       try {
@@ -726,12 +754,23 @@ export class PetPassportComponent implements OnInit {
     }
   }
 
-  async revoke(id: string) {
+  async revoke(sh: any) {
     this.error.set('');
+    const token = shareTokenOf(sh);
     try {
-      await this.api.revokePassportShare(id);
+      const res = await this.api.revokePassportShare({
+        id: String(sh?.id || sh?.shareId || token || ''),
+        token,
+        petId: this.petId,
+      });
+      if (token) revokeCachedPassportShare(token);
       this.share.set(null);
-      this.ok.set('Share revoked.');
+      this.copied.set(false);
+      this.ok.set(
+        res.via === 'api'
+          ? 'Access revoked. Anyone with the link will see that it has expired.'
+          : 'Access revoked. Opening the link now shows that it has expired.',
+      );
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Revoke failed');
     }

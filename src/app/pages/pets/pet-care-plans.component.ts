@@ -8,33 +8,20 @@ import {
   petInitial,
   titleCase,
 } from '../../utils/health-records';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
+import { HealthEmptyComponent } from '../../shared/health-empty.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent],
+  imports: [RouterLink, HealthShellComponent, HealthEmptyComponent],
   selector: 'app-pet-care-plans',
   template: `
-    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
-
-    <header class="head">
-      <div class="who" aria-hidden="true">
-        <span class="avatar">{{ petInitial(petName()) }}</span>
-      </div>
-      <div>
-        <p class="kicker">Health record</p>
-        <h1>{{ titleCase(petName()) || 'Pet' }}’s Care plans</h1>
-        <p class="lede">Plans and next steps shared after visits.</p>
-      </div>
-    </header>
-
-    <div class="switcher" role="tablist" aria-label="Switch pet">
-      @for (p of pets(); track p.id) {
-        <button type="button" class="chip" [class.on]="petId === p.id" (click)="switchPet(p.id)">
-          {{ titleCase(p.name) }}
-        </button>
-      }
-    </div>
+    <vos-health-shell
+      [petId]="petId"
+      section="care-plans"
+      sectionTitle="Care plans"
+      lede="Plans and next steps shared after visits."
+    >
 
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -45,15 +32,13 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
     @if (loading()) {
       <div class="vos-skel"></div>
     } @else if (!plans().length) {
-      <div class="empty">
-        <div class="empty__mark" aria-hidden="true"></div>
-        <h2>No care plans yet</h2>
-        <p>When your vet shares a plan from a visit, it lands here. Until then, check the timeline or add paperwork.</p>
-        <div class="empty__actions">
-          <a class="vos-btn" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
-          <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petId, 'documents']">Upload past records</a>
-        </div>
-      </div>
+      <vos-health-empty
+        title="No care plans yet"
+        message="When your vet shares a plan from a visit, it lands here. Until then, check the timeline or add paperwork."
+      >
+        <a class="vos-btn" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
+        <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petId, 'documents']">Upload past records</a>
+      </vos-health-empty>
     } @else {
       @if (fromVisits()) {
         <p class="hint">Built from visit follow-ups and treatment notes — formal care plans appear when your vet publishes them.</p>
@@ -96,6 +81,7 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         </article>
       }
     }
+    </vos-health-shell>
   `,
   styles: [`
     .head { display: flex; gap: 14px; align-items: flex-start; margin: 8px 0 14px; }

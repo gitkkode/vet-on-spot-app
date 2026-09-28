@@ -9,6 +9,11 @@ import { blockingBookings, bookingBlocksPet } from '../../utils/booking-pending'
 import { resolvePetPhotoUrl } from '../../utils/pet-photo';
 import { displayPetName } from '../../utils/health-records';
 import { NavBackService } from '../../services/nav-back.service';
+import {
+  dedupeAddressText,
+  formatAddress,
+  parseAddress,
+} from '../../utils/address';
 const REASONS = [
   'sick',
   'vomiting / diarrhea',
@@ -389,7 +394,7 @@ const INDIAN_STATES = [
                     (click)="pickAddress(a)"
                   >
                     <strong>{{ a.label || 'Home' }}@if (a.isDefault) { <span class="chip-tag">Default</span> }</strong>
-                    <em>{{ a.address }}</em>
+                    <em>{{ prettyAddr(a.address) }}</em>
                   </button>
                 }
               </div>
@@ -1534,7 +1539,7 @@ export class BookWizardComponent implements OnInit {
       if (def) {
         this.applySavedAddress(def);
       } else if (me?.address) {
-        this.addrStreet = String(me.address);
+        this.applyParsedAddress(parseAddress(me.address));
       }
 
       const bookable = (pets || []).filter((p: any) => !this.petHasActiveVisit(p.id));
@@ -1583,11 +1588,56 @@ export class BookWizardComponent implements OnInit {
   }
 
   private normalizeAddresses(raw: any): any[] {
-    if (Array.isArray(raw)) return raw;
-    if (Array.isArray(raw?.items)) return raw.items;
-    if (Array.isArray(raw?.addresses)) return raw.addresses;
-    if (Array.isArray(raw?.data)) return raw.data;
-    return [];
+    const list = Array.isArray(raw)
+      ? raw
+      : Array.isArray(raw?.items)
+        ? raw.items
+        : Array.isArray(raw?.addresses)
+          ? raw.addresses
+          : Array.isArray(raw?.data)
+            ? raw.data
+            : [];
+    return list.map((a: any) => ({
+      ...a,
+      address: dedupeAddressText(a?.address || a?.line1 || a?.fullAddress || ''),
+    }));
+  }
+
+  prettyAddr(raw: unknown): string {
+    return dedupeAddressText(raw) || '—';
+  }
+
+  private applyParsedAddress(parsed: ReturnType<typeof parseAddress>) {
+    this.addrStreet = parsed.street;
+    this.addrApt = parsed.apt || '';
+    this.addrCity = parsed.city;
+    this.addrState = parsed.state;
+    this.addrPin = parsed.pin;
+  }
+
+  private applySavedAddress(a: any) {
+    this.selectedSavedId = a.id || '';
+    this.applyParsedAddress(parseAddress(a?.address || ''));
+    this.clearFieldError();
+  }
+
+  pickAddress(a: any) {
+    this.applySavedAddress(a);
+  }
+
+  onStructuredAddressEdit() {
+    this.selectedSavedId = '';
+    this.clearFieldError();
+  }
+
+  composedAddress(): string {
+    return formatAddress({
+      street: this.addrStreet,
+      apt: this.addrApt,
+      city: this.addrCity,
+      state: this.addrState,
+      pin: this.addrPin,
+    });
   }
 
   private toIsoDate(d: Date) {
@@ -1725,44 +1775,6 @@ export class BookWizardComponent implements OnInit {
     this.photoFile = file;
     if (this.photoPreview()) URL.revokeObjectURL(this.photoPreview());
     this.photoPreview.set(file ? URL.createObjectURL(file) : '');
-  }
-
-  private applySavedAddress(a: any) {
-    this.selectedSavedId = a.id || '';
-    const text = String(a.address || '').trim();
-    // Prefer putting the full saved string in street so dispatch gets the exact saved place;
-    // clear structured extras unless we can spot a 6-digit PIN.
-    this.addrStreet = text;
-    this.addrApt = '';
-    this.addrCity = '';
-    this.addrState = '';
-    this.addrPin = '';
-    const pin = text.match(/\b(\d{6})\b/);
-    if (pin) this.addrPin = pin[1];
-    this.clearFieldError();
-  }
-
-  pickAddress(a: any) {
-    this.applySavedAddress(a);
-  }
-
-  onStructuredAddressEdit() {
-    this.selectedSavedId = '';
-    this.clearFieldError();
-  }
-
-  composedAddress(): string {
-    if (this.selectedSavedId) {
-      const saved = this.addresses().find((a) => a.id === this.selectedSavedId);
-      if (saved?.address) return String(saved.address);
-    }
-    const parts = [
-      this.addrStreet.trim(),
-      this.addrApt.trim() ? `Apt ${this.addrApt.trim()}` : '',
-      [this.addrCity.trim(), this.addrState.trim()].filter(Boolean).join(', '),
-      this.addrPin.trim(),
-    ].filter(Boolean);
-    return parts.join(', ');
   }
 
   canContinueAddress() {

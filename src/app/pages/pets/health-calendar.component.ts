@@ -1,23 +1,33 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { CustomerApiService } from '../../services/customer-api.service';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
+import { HealthEmptyComponent } from '../../shared/health-empty.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent],
+  imports: [RouterLink, HealthShellComponent, HealthEmptyComponent],
   selector: 'app-health-calendar',
   template: `
-    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
-    <h1>Health calendar</h1>
-    <p class="vos-muted">Visits, follow-ups, vaccinations, and reminders by date.</p>
+    <vos-health-shell
+      [petId]="petId"
+      section="calendar"
+      sectionTitle="Calendar"
+      lede="Visits, follow-ups, vaccinations, and reminders by date."
+    >
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
     }
     @if (loading()) {
       <div class="vos-skel"></div>
     } @else if (!days().length) {
-      <p class="vos-empty">No calendar events in this range.</p>
+      <vos-health-empty
+        title="No calendar events"
+        message="Visits, follow-ups, and reminders will show here by date once they’re on file."
+      >
+        <a class="vos-btn" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
+      </vos-health-empty>
     } @else {
       @for (day of days(); track day.date) {
         <section class="vos-card">
@@ -37,6 +47,7 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         </section>
       }
     }
+    </vos-health-shell>
   `,
   styles: [`
     h1, h2 { margin: 8px 0; font-family: var(--vos-display); }
@@ -51,11 +62,12 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
     }
   `],
 })
-export class HealthCalendarComponent implements OnInit {
+export class HealthCalendarComponent implements OnInit, OnDestroy {
   readonly days = signal<{ date: string; events: any[] }[]>([]);
   readonly loading = signal(true);
   readonly error = signal('');
   petId = '';
+  private sub?: Subscription;
 
   constructor(
     private api: CustomerApiService,
@@ -63,8 +75,16 @@ export class HealthCalendarComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    this.petId = this.route.snapshot.paramMap.get('id') || '';
-    void this.load();
+    this.sub = this.route.paramMap.subscribe((pm) => {
+      const id = pm.get('id') || '';
+      if (!id || id === this.petId) return;
+      this.petId = id;
+      void this.load();
+    });
+  }
+
+  ngOnDestroy() {
+    this.sub?.unsubscribe();
   }
 
   trackEv(ev: any) {
@@ -72,10 +92,12 @@ export class HealthCalendarComponent implements OnInit {
   }
 
   async load() {
+    const id = this.petId;
     this.loading.set(true);
     this.error.set('');
     try {
-      const raw = await this.api.healthCalendar(this.petId);
+      const raw = await this.api.healthCalendar(id);
+      if (id !== this.petId) return;
       const events = Array.isArray(raw) ? raw : raw?.events || [];
       const byDate = new Map<string, any[]>();
       for (const ev of events) {
@@ -88,9 +110,10 @@ export class HealthCalendarComponent implements OnInit {
         .map(([date, list]) => ({ date, events: list }));
       this.days.set(sorted);
     } catch (e: any) {
+      if (id !== this.petId) return;
       this.error.set(e?.error?.message || e?.message || 'Failed');
     } finally {
-      this.loading.set(false);
+      if (id === this.petId) this.loading.set(false);
     }
   }
 }

@@ -5,6 +5,25 @@ import { CustomerApiService } from '../../services/customer-api.service';
 import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 
+/** Guess dose times so a prescription can show morning/evening slots on Medications. */
+function timesFromFrequency(raw: string): Record<string, boolean> {
+  const f = String(raw || '').toLowerCase();
+  const all = { morning: false, afternoon: false, evening: false, night: false };
+  if (/qid|4\s*x|four times|4 times/.test(f)) {
+    return { morning: true, afternoon: true, evening: true, night: true };
+  }
+  if (/tid|thrice|3\s*x|three times|3 times/.test(f)) {
+    return { morning: true, afternoon: true, evening: true, night: false };
+  }
+  if (/bid|twice|2\s*x|two times|2 times/.test(f)) {
+    return { morning: true, afternoon: false, evening: true, night: false };
+  }
+  if (/night|bedtime|hs\b/.test(f)) return { ...all, night: true };
+  if (/evening/.test(f)) return { ...all, evening: true };
+  if (/afternoon/.test(f)) return { ...all, afternoon: true };
+  return { ...all, morning: true };
+}
+
 @Component({
   standalone: true,
   imports: [RouterLink, SlicePipe, VosBackButtonComponent, VosTitleCasePipe],
@@ -144,7 +163,10 @@ export class VisitSummaryComponent implements OnInit {
         dose: [item.dose, item.unit].filter(Boolean).join(' '),
         frequency: item.frequency || '',
         instructions: item.instructions || '',
+        times: timesFromFrequency(item.frequency || item.instructions || ''),
         prescriptionItemId: item.id || undefined,
+        active: true,
+        status: 'ACTIVE',
       });
       this.ok.set(`${item.medicine} added to medication tracking.`);
     } catch (e: any) {

@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { normalizePetRecord, normalizePetsList, resolvePetPhotoUrl, unwrapPetPayload, cachePetPhotoUrl, fileToDataUrl, getCachedPetPhotoUrl } from '../utils/pet-photo';
+import { normalizePetRecord, normalizePetsList, resolvePetPhotoUrl, unwrapPetPayload, cachePetPhotoUrl, clearCachedPetPhotoUrl, fileToDataUrl, getCachedPetPhotoUrl } from '../utils/pet-photo';
 
 @Injectable({ providedIn: 'root' })
 export class CustomerApiService {
@@ -334,6 +334,74 @@ export class CustomerApiService {
     });
   }
 
+  /**
+   * Remove a pet profile photo.
+   * Tries DELETE …/photo and PATCH clearing photo fields.
+   */
+  async deletePetPhoto(petId: string): Promise<void> {
+    const id = String(petId || '').trim();
+    if (!id) throw new Error('Missing pet id for photo remove');
+    const encoded = encodeURIComponent(id);
+    const petBase = `${this.base}/customers/me/pets/${encoded}`;
+    const deletePaths = [
+      `${petBase}/photo`,
+      `${petBase}/avatar`,
+      `${petBase}/image`,
+      `${petBase}/profile-photo`,
+    ];
+    let lastErr: any = null;
+
+    for (const path of deletePaths) {
+      try {
+        const res = await firstValueFrom(this.http.delete<any>(path));
+        if (res && typeof res === 'object' && res.success === false) {
+          lastErr = res;
+          if (this.isMissingRouteError({ error: res, status: 404 })) continue;
+          continue;
+        }
+        clearCachedPetPhotoUrl(id);
+        return;
+      } catch (e: any) {
+        lastErr = e;
+        if (e?.status === 401 || e?.status === 403) throw e;
+        if (this.isMissingRouteError(e)) continue;
+        if (e?.status === 404 || e?.status === 405) continue;
+      }
+    }
+
+    const clearBodies = [
+      { photoUrl: null },
+      { photoUrl: '' },
+      { photo: null },
+      { avatarUrl: null },
+      { profilePhoto: null },
+      { clearPhoto: true },
+      { removePhoto: true },
+    ];
+    for (const body of clearBodies) {
+      try {
+        await firstValueFrom(this.http.patch<any>(petBase, body));
+        clearCachedPetPhotoUrl(id);
+        return;
+      } catch (e: any) {
+        lastErr = e;
+        if (e?.status === 401 || e?.status === 403) throw e;
+        if (this.isMissingRouteError(e)) break;
+      }
+    }
+
+    // Local-only clear so UI stays consistent if API is missing
+    clearCachedPetPhotoUrl(id);
+    throw Object.assign(
+      new Error(
+        lastErr?.error?.message ||
+          lastErr?.message ||
+          'Photo remove API missing — cleared on this device only',
+      ),
+      { error: lastErr?.error || lastErr, status: lastErr?.status || 404, localCleared: true },
+    );
+  }
+
   doctors() {
     return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/doctors`)));
   }
@@ -418,12 +486,137 @@ export class CustomerApiService {
       ),
     );
   }
-  revokePassportShare(id: string) {
-    return this.data(
-      firstValueFrom(
-        this.http.post<any>(`${this.base}/customers/me/passport-shares/${id}/revoke`, {}),
-      ),
-    );
+  /**
+   * Public read of a temporary passport link. No login.
+   * Closed shares (revoked, expired, unknown token) resolve as `closed`.
+   */
+  async getPublicPassportShare(token: string): Promise<
+    | { state: 'active'; passport: any; expiresAt: string | null }
+    | { state: 'closed' }
+    | { state: 'error'; message: string }
+  > {
+    const enc = encodeURIComponent(String(token || '').trim());
+    const urls = [
+      `${this.base}/public/passport-shares/${enc}`,
+      `${this.base}/passport-shares/${enc}`,
+      `${this.base}/share/passport/${enc}`,
+    ];
+    let lastErr: any = null;
+    let sawRoute = false;
+    for (const url of urls) {
+      try {
+        const res = await firstValueFrom(this.http.get<any>(url));
+        const parsed = this.interpretSharePayload(this.unwrapApiResult(res));
+        if (parsed.state === 'incomplete') return { state: 'error', message: '' };
+        return parsed;
+      } catch (e: any) {
+        lastErr = e;
+        if (this.isShareClosedError(e)) return { state: 'closed' };
+        if (e?.status === 404 && !this.isExplicitMissingRoute(e)) return { state: 'closed' };
+        if (this.isExplicitMissingRoute(e) || e?.status === 405) continue;
+        sawRoute = true;
+        break;
+      }
+    }
+    if (lastErr?.status === 0) {
+      return { state: 'error', message: 'Could not reach VetOnSpot. Check your connection and try again.' };
+    }
+    if (!sawRoute) return { state: 'error', message: '' };
+    return {
+      state: 'error',
+      message: lastErr?.error?.message || lastErr?.message || 'Could not open this share link.',
+    };
+  }
+
+  /**
+   * Invalidate a passport share. Tries the preferred revoke route, then aliases.
+   * `via: 'local'` means no revoke route answered — the caller should still expire the link on this device.
+   */
+  async revokePassportShare(
+    input: string | { id?: string; token?: string; petId?: string },
+  ): Promise<{ via: 'api' | 'local' }> {
+    const share = typeof input === 'string' ? { id: input } : input || {};
+    const ids = [...new Set([share.id, share.token].map((v) => String(v || '').trim()).filter(Boolean))];
+    const paths: string[] = [];
+    for (const id of ids) {
+      const enc = encodeURIComponent(id);
+      paths.push(`${this.base}/customers/me/passport-shares/${enc}/revoke`);
+      if (share.petId) {
+        paths.push(
+          `${this.base}/customers/me/pets/${encodeURIComponent(share.petId)}/passport/shares/${enc}/revoke`,
+        );
+      }
+    }
+    let lastErr: any = null;
+    for (const path of paths) {
+      try {
+        const res = await firstValueFrom(this.http.post<any>(path, {}));
+        this.unwrapApiResult(res);
+        return { via: 'api' };
+      } catch (e: any) {
+        lastErr = e;
+        const msg = String(e?.error?.message || e?.message || '').toLowerCase();
+        if (/already/.test(msg) && /revok/.test(msg)) return { via: 'api' };
+        if (e?.status === 401 || e?.status === 403) throw e;
+        if (this.isExplicitMissingRoute(e) || e?.status === 404 || e?.status === 405) continue;
+        throw e;
+      }
+    }
+    for (const id of ids) {
+      try {
+        const res = await firstValueFrom(
+          this.http.delete<any>(`${this.base}/customers/me/passport-shares/${encodeURIComponent(id)}`),
+        );
+        this.unwrapApiResult(res);
+        return { via: 'api' };
+      } catch (e: any) {
+        lastErr = e;
+        if (e?.status === 401 || e?.status === 403) throw e;
+        if (this.isExplicitMissingRoute(e) || e?.status === 404 || e?.status === 405) continue;
+        throw e;
+      }
+    }
+    if (lastErr && !this.isExplicitMissingRoute(lastErr) && lastErr?.status && lastErr.status !== 404) {
+      throw lastErr;
+    }
+    return { via: 'local' };
+  }
+
+  private interpretSharePayload(data: any):
+    | { state: 'active'; passport: any; expiresAt: string | null }
+    | { state: 'closed' }
+    | { state: 'incomplete' } {
+    const status = String(data?.status || data?.share?.status || data?.shareStatus || '').toLowerCase();
+    const expiresAt = data?.expiresAt || data?.share?.expiresAt || data?.expires_at || null;
+    const revoked = data?.revoked === true || data?.share?.revoked === true;
+    if (revoked || /revok|expir|cancel|invalid|disabled|inactive|gone/.test(status)) {
+      return { state: 'closed' };
+    }
+    if (expiresAt) {
+      const at = new Date(expiresAt).getTime();
+      if (!Number.isNaN(at) && at <= Date.now()) return { state: 'closed' };
+    }
+    const nested = data?.passport || data?.record || data?.snapshot;
+    const body = nested && typeof nested === 'object' ? nested : data;
+    if (body && (body.pet || body.emergency || body.vaccinations || body.medications || body.conditions)) {
+      return { state: 'active', passport: body, expiresAt: expiresAt || null };
+    }
+    if (status === 'active' || status === 'valid' || status === 'open') return { state: 'incomplete' };
+    return { state: 'closed' };
+  }
+
+  private isShareClosedError(e: any): boolean {
+    const status = e?.status;
+    const msg = String(e?.error?.message || e?.error?.code || e?.message || '').toLowerCase();
+    if (status === 410 || status === 403) return true;
+    return /revok|expir|invalid|no longer|gone/.test(msg);
+  }
+
+  private isExplicitMissingRoute(e: any): boolean {
+    const status = e?.status;
+    const msg = String(e?.error?.message || e?.message || '').toLowerCase();
+    if (status === 405 || status === 501) return true;
+    return /route not found|cannot (get|post|delete|patch|put)|method not allowed|not implemented/.test(msg);
   }
   weightTrend(petId: string) {
     return this.data(
@@ -468,6 +661,40 @@ export class CustomerApiService {
     );
   }
 
+  /** Edit a schedule, including dose times. Preferred: PATCH /customers/me/medications/:id */
+  async updateMedication(id: string, body: Record<string, unknown>): Promise<any> {
+    const mid = String(id || '').trim();
+    if (!mid) throw new Error('Missing medication id');
+    const path = `${this.base}/customers/me/medications/${encodeURIComponent(mid)}`;
+    let lastErr: any = null;
+    for (const method of ['patch', 'put'] as const) {
+      try {
+        const res =
+          method === 'patch'
+            ? await firstValueFrom(this.http.patch<any>(path, body))
+            : await firstValueFrom(this.http.put<any>(path, body));
+        if (res && typeof res === 'object' && res.success === false) {
+          lastErr = res;
+          if (this.isMissingRouteError({ error: res, status: 404 })) break;
+          continue;
+        }
+        return res?.data !== undefined ? res.data : res;
+      } catch (e: any) {
+        lastErr = e;
+        if (e?.status === 401 || e?.status === 403) throw e;
+        if (this.isMissingRouteError(e) || e?.status === 404 || e?.status === 405) break;
+      }
+    }
+    throw Object.assign(
+      new Error(
+        lastErr?.error?.message ||
+          lastErr?.message ||
+          'Medication update API is missing on the server',
+      ),
+      { error: lastErr?.error || lastErr, status: lastErr?.status },
+    );
+  }
+
   documents(petId?: string | null) {
     const q = petId ? `?petId=${encodeURIComponent(petId)}` : '';
     return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/documents${q}`))).then(
@@ -477,7 +704,8 @@ export class CustomerApiService {
 
   /**
    * Upload a customer-owned document for a pet.
-   * Tries pet-scoped and account-scoped multipart routes with several field names.
+   * Prefers pet-scoped multipart routes; avoids sending category as `type`
+   * (that field is often interpreted as MIME and causes false 422s on PDFs).
    */
   async uploadPetDocument(
     petId: string,
@@ -488,35 +716,47 @@ export class CustomerApiService {
     if (!id) throw new Error('Missing pet id for document upload');
     if (!file) throw new Error('Missing document file');
     const cat = String(category || 'other').trim() || 'other';
+    const uploadFile = this.ensureDocumentMime(file);
     const encoded = encodeURIComponent(id);
     const petBase = `${this.base}/customers/me/pets/${encoded}`;
     const paths: Array<{ url: string; includePetIdField: boolean }> = [
       { url: `${petBase}/documents`, includePetIdField: false },
       { url: `${petBase}/files`, includePetIdField: false },
-      { url: `${petBase}/upload`, includePetIdField: false },
       { url: `${this.base}/customers/me/documents`, includePetIdField: true },
-      { url: `${this.base}/customers/me/files`, includePetIdField: true },
       { url: `${this.base}/customers/me/documents/upload`, includePetIdField: true },
+      { url: `${this.base}/customers/me/files`, includePetIdField: true },
+      { url: `${petBase}/upload`, includePetIdField: false },
     ];
-    const fields = ['file', 'document', 'files', 'attachment', 'upload'];
+    // Prefer `file` first — matches API_README preferred contract
+    const fields = ['file', 'document', 'attachment', 'upload', 'files'];
     let lastErr: any = null;
+    let sawMimeReject = false;
 
     for (const path of paths) {
+      let pathHadResponse = false;
       for (const field of fields) {
         try {
           const fd = new FormData();
-          fd.append(field, file, file.name || 'document');
+          fd.append(field, uploadFile, uploadFile.name || 'document.pdf');
           fd.append('category', cat);
-          fd.append('type', cat);
+          fd.append('documentCategory', cat);
+          fd.append('documentType', cat);
+          fd.append('kind', cat);
           if (path.includePetIdField) {
             fd.append('petId', id);
             fd.append('pet_id', id);
           }
           const res = await firstValueFrom(this.http.post<any>(path.url, fd));
+          pathHadResponse = true;
           if (res && typeof res === 'object' && res.success === false) {
             lastErr = res;
             const msg = String(res.message || '').toLowerCase();
             if (/route not found|not found|method/.test(msg)) break;
+            if (this.isMimeRejectMessage(msg)) {
+              sawMimeReject = true;
+              // Wrong field may omit the binary; try next field name on this path
+              continue;
+            }
             continue;
           }
           const data = res?.data !== undefined ? res.data : res;
@@ -528,15 +768,26 @@ export class CustomerApiService {
             id: doc?.id || data?.id,
             petId: id,
             category: cat,
-            fileName: doc?.fileName || doc?.name || file.name,
+            fileName: doc?.fileName || doc?.name || uploadFile.name,
           };
         } catch (e: any) {
           lastErr = e;
           if (e?.status === 401 || e?.status === 403) throw e;
           if (this.isMissingRouteError(e)) break;
+          pathHadResponse = true;
+          const msg = String(e?.error?.message || e?.message || '').toLowerCase();
+          if (this.isMimeRejectMessage(msg)) {
+            sawMimeReject = true;
+            continue;
+          }
           if ([400, 415, 422].includes(e?.status)) continue;
           break;
         }
+      }
+      // If this path answered with MIME reject for every field, keep trying other
+      // routes once — some aliases are photo-only (/files) while /documents accepts PDF.
+      if (sawMimeReject && pathHadResponse) {
+        // continue to next path
       }
     }
 
@@ -548,6 +799,36 @@ export class CustomerApiService {
       error: lastErr?.error || lastErr,
       status: lastErr?.status,
     });
+  }
+
+  /** Ensure browser File has a MIME type (Windows often leaves PDF type empty). */
+  private ensureDocumentMime(file: File): File {
+    const existing = String(file.type || '').toLowerCase().trim();
+    if (existing && existing !== 'application/octet-stream') return file;
+    const name = String(file.name || '').toLowerCase();
+    let mime = existing || '';
+    if (name.endsWith('.pdf')) mime = 'application/pdf';
+    else if (/\.jpe?g$/.test(name)) mime = 'image/jpeg';
+    else if (name.endsWith('.png')) mime = 'image/png';
+    else if (name.endsWith('.webp')) mime = 'image/webp';
+    else if (name.endsWith('.gif')) mime = 'image/gif';
+    else if (name.endsWith('.bmp')) mime = 'image/bmp';
+    else if (name.endsWith('.doc')) mime = 'application/msword';
+    else if (name.endsWith('.docx')) {
+      mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    } else if (name.endsWith('.txt')) mime = 'text/plain';
+    if (!mime || mime === existing) return file;
+    try {
+      return new File([file], file.name, { type: mime, lastModified: file.lastModified });
+    } catch {
+      return file;
+    }
+  }
+
+  private isMimeRejectMessage(msg: string): boolean {
+    return /only images|pdf|office documents? are allowed|unsupported (file )?type|invalid file|mime/i.test(
+      msg,
+    );
   }
 
   /** Upload several documents; returns per-file results (does not throw on partial failure). */
@@ -572,6 +853,199 @@ export class CustomerApiService {
     return { ok, failed, errors };
   }
 
+  /**
+   * Update document metadata (category).
+   * Preferred: PATCH /customers/me/documents/:id
+   */
+  async updatePetDocument(
+    documentId: string,
+    body: { category?: string; petId?: string },
+  ): Promise<any> {
+    const id = String(documentId || '').trim();
+    if (!id) throw new Error('Missing document id');
+    const cat = String(body.category || '').trim();
+    const petId = String(body.petId || '').trim();
+    const payload: Record<string, unknown> = {};
+    if (cat) {
+      payload['category'] = cat;
+      payload['documentCategory'] = cat;
+      payload['documentType'] = cat;
+      payload['kind'] = cat;
+    }
+    if (petId) {
+      payload['petId'] = petId;
+      payload['pet_id'] = petId;
+    }
+
+    const paths = [
+      `${this.base}/customers/me/documents/${encodeURIComponent(id)}`,
+      `${this.base}/customers/me/files/${encodeURIComponent(id)}`,
+      ...(petId
+        ? [
+            `${this.base}/customers/me/pets/${encodeURIComponent(petId)}/documents/${encodeURIComponent(id)}`,
+          ]
+        : []),
+    ];
+    let lastErr: any = null;
+    for (const path of paths) {
+      for (const method of ['patch', 'put'] as const) {
+        try {
+          const res =
+            method === 'patch'
+              ? await firstValueFrom(this.http.patch<any>(path, payload))
+              : await firstValueFrom(this.http.put<any>(path, payload));
+          if (res && typeof res === 'object' && res.success === false) {
+            lastErr = res;
+            if (this.isMissingRouteError({ error: res, status: 404 })) break;
+            continue;
+          }
+          return res?.data !== undefined ? res.data : res;
+        } catch (e: any) {
+          lastErr = e;
+          if (e?.status === 401 || e?.status === 403) throw e;
+          if (this.isMissingRouteError(e) || e?.status === 404 || e?.status === 405) break;
+          if ([400, 422].includes(e?.status)) continue;
+        }
+      }
+    }
+    throw Object.assign(
+      new Error(
+        lastErr?.error?.message ||
+          lastErr?.message ||
+          'Document update API is missing on the server',
+      ),
+      { error: lastErr?.error || lastErr, status: lastErr?.status },
+    );
+  }
+
+  /**
+   * Replace document file (and optionally category).
+   * Preferred: PUT/POST multipart …/documents/:id
+   */
+  async replacePetDocument(
+    documentId: string,
+    file: File,
+    opts?: { category?: string; petId?: string },
+  ): Promise<any> {
+    const id = String(documentId || '').trim();
+    if (!id) throw new Error('Missing document id');
+    if (!file) throw new Error('Missing document file');
+    const cat = String(opts?.category || '').trim();
+    const petId = String(opts?.petId || '').trim();
+    const uploadFile = this.ensureDocumentMime(file);
+
+    const paths = [
+      `${this.base}/customers/me/documents/${encodeURIComponent(id)}`,
+      `${this.base}/customers/me/documents/${encodeURIComponent(id)}/replace`,
+      `${this.base}/customers/me/files/${encodeURIComponent(id)}`,
+      ...(petId
+        ? [
+            `${this.base}/customers/me/pets/${encodeURIComponent(petId)}/documents/${encodeURIComponent(id)}`,
+          ]
+        : []),
+    ];
+    let lastErr: any = null;
+    for (const path of paths) {
+      for (const method of ['put', 'post', 'patch'] as const) {
+        try {
+          const fd = new FormData();
+          fd.append('file', uploadFile, uploadFile.name || 'document.pdf');
+          if (cat) {
+            fd.append('category', cat);
+            fd.append('documentCategory', cat);
+          }
+          if (petId) {
+            fd.append('petId', petId);
+            fd.append('pet_id', petId);
+          }
+          const res =
+            method === 'put'
+              ? await firstValueFrom(this.http.put<any>(path, fd))
+              : method === 'post'
+                ? await firstValueFrom(this.http.post<any>(path, fd))
+                : await firstValueFrom(this.http.patch<any>(path, fd));
+          if (res && typeof res === 'object' && res.success === false) {
+            lastErr = res;
+            if (this.isMissingRouteError({ error: res, status: 404 })) break;
+            continue;
+          }
+          return res?.data !== undefined ? res.data : res;
+        } catch (e: any) {
+          lastErr = e;
+          if (e?.status === 401 || e?.status === 403) throw e;
+          if (this.isMissingRouteError(e) || e?.status === 404 || e?.status === 405) break;
+          if ([400, 415, 422].includes(e?.status)) continue;
+        }
+      }
+    }
+    throw Object.assign(
+      new Error(
+        lastErr?.error?.message ||
+          lastErr?.message ||
+          'Document replace API is missing on the server',
+      ),
+      { error: lastErr?.error || lastErr, status: lastErr?.status },
+    );
+  }
+
+  /**
+   * Delete a customer document.
+   * Preferred: DELETE /customers/me/documents/:id
+   */
+  async deletePetDocument(documentId: string, petId?: string | null): Promise<void> {
+    const id = String(documentId || '').trim();
+    if (!id) throw new Error('Missing document id');
+    const pid = String(petId || '').trim();
+    const paths = [
+      `${this.base}/customers/me/documents/${encodeURIComponent(id)}`,
+      `${this.base}/customers/me/files/${encodeURIComponent(id)}`,
+      ...(pid
+        ? [
+            `${this.base}/customers/me/pets/${encodeURIComponent(pid)}/documents/${encodeURIComponent(id)}`,
+          ]
+        : []),
+    ];
+    let lastErr: any = null;
+    for (const path of paths) {
+      try {
+        const res = await firstValueFrom(this.http.delete<any>(path));
+        if (res && typeof res === 'object' && res.success === false) {
+          lastErr = res;
+          if (this.isMissingRouteError({ error: res, status: 404 })) continue;
+          continue;
+        }
+        return;
+      } catch (e: any) {
+        lastErr = e;
+        if (e?.status === 401 || e?.status === 403) throw e;
+        if (this.isMissingRouteError(e) || e?.status === 404 || e?.status === 405) continue;
+      }
+    }
+
+    // Soft-delete via PATCH if DELETE is missing
+    for (const path of paths) {
+      try {
+        await firstValueFrom(
+          this.http.patch<any>(path, { deleted: true, archived: true, status: 'deleted' }),
+        );
+        return;
+      } catch (e: any) {
+        lastErr = e;
+        if (e?.status === 401 || e?.status === 403) throw e;
+        if (this.isMissingRouteError(e) || e?.status === 404 || e?.status === 405) continue;
+      }
+    }
+
+    throw Object.assign(
+      new Error(
+        lastErr?.error?.message ||
+          lastErr?.message ||
+          'Document delete API is missing on the server',
+      ),
+      { error: lastErr?.error || lastErr, status: lastErr?.status },
+    );
+  }
+
   supportTickets() {
 
     return this.data(firstValueFrom(this.http.get<any>(`${this.base}/customers/me/support`))).then((d) =>
@@ -580,6 +1054,72 @@ export class CustomerApiService {
   }
   createSupport(body: Record<string, unknown>) {
     return this.data(firstValueFrom(this.http.post<any>(`${this.base}/customers/me/support`, body)));
+  }
+
+  /**
+   * Reply on an existing Need help ticket.
+   * Preferred: POST /customers/me/support/:ticketId/comments
+   * Falls back to a linked new ticket when that route is missing.
+   */
+  async addSupportComment(
+    ticketId: string,
+    body: string,
+    ticket?: { category?: string; subject?: string; displayId?: string },
+  ): Promise<{ via: 'comment' | 'ticket'; data: any }> {
+    const id = String(ticketId || '').trim();
+    const text = String(body || '').trim();
+    if (!id) throw new Error('Missing ticket id');
+    if (!text) throw new Error('Comment is empty');
+
+    const encoded = encodeURIComponent(id);
+    const paths = [
+      `${this.base}/customers/me/support/${encoded}/comments`,
+      `${this.base}/customers/me/support/${encoded}/replies`,
+      `${this.base}/customers/me/support/${encoded}/messages`,
+      `${this.base}/customers/me/support/tickets/${encoded}/comments`,
+    ];
+    const payloads: Record<string, string>[] = [
+      { body: text },
+      { message: text, text },
+      { comment: text, body: text },
+    ];
+
+    let lastErr: any = null;
+    for (const path of paths) {
+      let missing = false;
+      for (const payload of payloads) {
+        try {
+          const res = await firstValueFrom(this.http.post<any>(path, payload));
+          if (res && typeof res === 'object' && res.success === false) {
+            lastErr = res;
+            if (this.isMissingRouteError({ error: res, status: 404 })) {
+              missing = true;
+              break;
+            }
+            continue;
+          }
+          return { via: 'comment', data: res?.data !== undefined ? res.data : res };
+        } catch (e: any) {
+          lastErr = e;
+          if (e?.status === 401 || e?.status === 403) throw e;
+          if (this.isMissingRouteError(e)) {
+            missing = true;
+            break;
+          }
+          if ([400, 422].includes(e?.status)) continue;
+        }
+      }
+      if (missing) continue;
+    }
+
+    const created = await this.createSupport({
+      category: ticket?.category || 'other',
+      subject: `Re: ${ticket?.subject || ticket?.displayId || 'Support request'}`,
+      body: text,
+      parentTicketId: id,
+      ticketId: id,
+    });
+    return { via: 'ticket', data: created ?? lastErr };
   }
 
   petPassport(petId: string) {

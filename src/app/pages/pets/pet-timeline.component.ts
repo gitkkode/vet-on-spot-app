@@ -1,17 +1,18 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { titleCase } from '../../utils/health-records';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
+import { HealthEmptyComponent } from '../../shared/health-empty.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, SlicePipe, VosBackButtonComponent],
+  imports: [RouterLink, SlicePipe, HealthShellComponent, HealthEmptyComponent],
   selector: 'app-pet-timeline',
   template: `
-    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
-    <h1>Timeline</h1>
+    <vos-health-shell [petId]="petId" section="timeline" sectionTitle="Timeline" lede="Medical visits and follow-ups on file.">
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
     }
@@ -33,7 +34,12 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
       }
 
       @if (!(data().events || []).length) {
-        <p class="vos-empty">No clinical visits yet. After a veterinarian completes a visit, it will appear here.</p>
+        <vos-health-empty
+          title="No visits yet"
+          message="After a veterinarian completes a visit, it will appear here."
+        >
+          <a class="vos-btn" [routerLink]="['/book/new']" [queryParams]="{ petId }">Book a visit</a>
+        </vos-health-empty>
       }
 
       @for (e of data().events || []; track e.displayId) {
@@ -67,6 +73,7 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         </article>
       }
     }
+    </vos-health-shell>
   `,
   styles: [`
     h1, h2 { margin: 8px 0; font-family: var(--vos-display); }
@@ -82,11 +89,12 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
     }
   `],
 })
-export class PetTimelineComponent implements OnInit {
+export class PetTimelineComponent implements OnInit, OnDestroy {
   readonly data = signal<any>(null);
   readonly loading = signal(true);
   readonly error = signal('');
   petId = '';
+  private sub?: Subscription;
 
   constructor(
     private api: CustomerApiService,
@@ -94,8 +102,16 @@ export class PetTimelineComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    this.petId = this.route.snapshot.paramMap.get('id') || '';
-    void this.load();
+    this.sub = this.route.paramMap.subscribe((pm) => {
+      const id = pm.get('id') || '';
+      if (!id || id === this.petId) return;
+      this.petId = id;
+      void this.load();
+    });
+  }
+
+  ngOnDestroy() {
+    this.sub?.unsubscribe();
   }
 
   titleCase = titleCase;
@@ -141,14 +157,18 @@ export class PetTimelineComponent implements OnInit {
   }
 
   async load() {
+    const id = this.petId;
     this.loading.set(true);
     this.error.set('');
     try {
-      this.data.set(await this.api.petTimeline(this.petId));
+      const data = await this.api.petTimeline(id);
+      if (id !== this.petId) return;
+      this.data.set(data);
     } catch (e: any) {
+      if (id !== this.petId) return;
       this.error.set(e?.error?.message || e?.message || 'Failed');
     } finally {
-      this.loading.set(false);
+      if (id === this.petId) this.loading.set(false);
     }
   }
 }

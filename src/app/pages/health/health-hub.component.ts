@@ -3,16 +3,19 @@ import { RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { titleCase } from '../../utils/health-records';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent],
+  imports: [RouterLink, HealthShellComponent],
   selector: 'app-health-hub',
   template: `
-    <vos-back-button />
-    <h1>Pet Health</h1>
-    <p class="vos-muted">Ongoing care records for your active pet — no scores, just what’s on file.</p>
+    <vos-health-shell
+      [petId]="active() || ''"
+      section="overview"
+      sectionTitle="Health"
+      lede="Ongoing care records for your active pet — no scores, just what’s on file."
+    >
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
     }
@@ -20,31 +23,6 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
       <p class="vos-empty">Add a pet to see health records.</p>
       <a class="vos-btn" routerLink="/pets/new">Add pet</a>
     } @else {
-      <div class="switcher">
-        @for (p of pets(); track p.id) {
-          <button type="button" class="chip" [class.on]="active() === p.id" (click)="pick(p.id)">
-            {{ titleCase(p.name) }}
-          </button>
-        }
-      </div>
-
-      @if (active(); as pid) {
-        <nav class="tabs" aria-label="Health sections">
-          <a class="tab on" [routerLink]="['/pets', pid, 'health']">Overview</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'timeline']">Timeline</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'medications']">Medications</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'vaccinations']">Vaccinations</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'diagnostics']">Diagnostics</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'conditions']">Conditions</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'care-plans']">Care plans</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'documents']">Documents</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'reminders']">Reminders</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'calendar']">Calendar</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'weight']">Weight</a>
-          <a class="tab" [routerLink]="['/pets', pid, 'passport']">Passport</a>
-        </nav>
-      }
-
       @if (loading()) {
         <div class="vos-skel"></div>
       } @else if (summary(); as s) {
@@ -89,31 +67,9 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         </section>
       }
     }
+    </vos-health-shell>
   `,
   styles: [`
-    h1 { margin: 0 0 4px; font-family: var(--vos-display); }
-    .switcher { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 12px; }
-    .chip {
-      border: 1px solid var(--vos-border); background: var(--vos-surface);
-      border-radius: 999px; padding: 8px 14px; font-weight: 600; cursor: pointer; color: var(--vos-ink);
-    }
-    .chip.on { background: var(--vos-brand-soft); border-color: var(--vos-brand); }
-    .tabs {
-      display: flex; flex-wrap: wrap; gap: 6px;
-      margin: 0 0 16px; padding: 4px;
-      background: #f3efe6; border-radius: 14px;
-    }
-    .tab {
-      display: inline-flex; align-items: center;
-      min-height: 36px; padding: 6px 12px; border-radius: 10px;
-      text-decoration: none; color: var(--vos-ink-muted);
-      font-weight: 700; font-size: 0.88rem; white-space: nowrap;
-    }
-    .tab:hover { color: var(--vos-ink); background: rgba(255,255,255,0.55); }
-    .tab.on {
-      background: #fff; color: var(--vos-ink);
-      box-shadow: 0 4px 12px rgba(10, 10, 10, 0.06);
-    }
     .label {
       margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
       color: var(--vos-ink-muted); font-weight: 700;

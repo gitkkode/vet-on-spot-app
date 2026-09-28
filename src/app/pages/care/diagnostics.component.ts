@@ -4,42 +4,20 @@ import { Subscription } from 'rxjs';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { petInitial, titleCase } from '../../utils/health-records';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
+import { HealthEmptyComponent } from '../../shared/health-empty.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent],
+  imports: [RouterLink, HealthShellComponent, HealthEmptyComponent],
   selector: 'app-diagnostics',
   template: `
-    <vos-back-button [fallback]="petFilter ? ['/pets', petFilter, 'health'] : '/health'" fallbackLabel="Health" />
-
-    <header class="head">
-      @if (activeName()) {
-        <div class="who" aria-hidden="true">
-          <span class="avatar">{{ petInitial(activeName()) }}</span>
-        </div>
-      }
-      <div>
-        <p class="kicker">Health record</p>
-        <h1>
-          @if (activeName()) {
-            {{ titleCase(activeName()) }}’s Diagnostics
-          } @else {
-            Diagnostics
-          }
-        </h1>
-        <p class="lede">Lab and diagnostic results. Orders are placed by your veterinarian.</p>
-      </div>
-    </header>
-
-    <div class="switcher" role="tablist" aria-label="Switch pet">
-      <button type="button" class="chip" [class.on]="!petFilter" (click)="pick(null)">All pets</button>
-      @for (p of pets(); track p.id) {
-        <button type="button" class="chip" [class.on]="petFilter === p.id" (click)="pick(p.id)">
-          {{ titleCase(p.name) }}
-        </button>
-      }
-    </div>
+    <vos-health-shell
+      [petId]="petFilter || ''"
+      section="diagnostics"
+      sectionTitle="Diagnostics"
+      lede="Lab and diagnostic results. Orders are placed by your veterinarian."
+    >
 
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -49,26 +27,17 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
       <div class="vos-skel"></div>
       <div class="vos-skel"></div>
     } @else if (!items().length) {
-      <div class="empty">
-        <div class="empty__mark" aria-hidden="true"></div>
-        <h2>No diagnostic orders yet</h2>
-        <p>
-          @if (activeName()) {
-            Lab work for {{ titleCase(activeName()) }} will show here after your vet places an order.
-          } @else {
-            Lab work appears here after your vet places an order during a visit.
-          }
-        </p>
-        <div class="empty__actions">
-          @if (petFilter) {
-            <a class="vos-btn" [routerLink]="['/pets', petFilter, 'timeline']">View timeline</a>
-            <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petFilter, 'documents']">Upload past records</a>
-          } @else {
-            <a class="vos-btn" routerLink="/health">Back to Health</a>
-            <a class="vos-btn vos-btn-secondary" routerLink="/documents">Upload past records</a>
-          }
-        </div>
-      </div>
+      <vos-health-empty
+        title="No diagnostic orders yet"
+        [message]="activeName() ? 'Lab work for ' + titleCase(activeName()) + ' will show here after your vet places an order.' : 'Lab work appears here after your vet places an order during a visit.'"
+      >
+        @if (petFilter) {
+          <a class="vos-btn" [routerLink]="['/pets', petFilter, 'timeline']">View timeline</a>
+          <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petFilter, 'documents']">Upload past records</a>
+        } @else {
+          <a class="vos-btn" routerLink="/health">Back to Health</a>
+        }
+      </vos-health-empty>
     } @else {
       @for (d of items(); track d.id) {
         <a class="vos-card item" [routerLink]="['/diagnostics', d.id]">
@@ -99,6 +68,7 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         </div>
       }
     }
+    </vos-health-shell>
   `,
   styles: [`
     .head { display: flex; gap: 14px; align-items: flex-start; margin: 8px 0 14px; }
