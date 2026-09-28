@@ -7,23 +7,20 @@ import { ActivePetService } from '../../services/active-pet.service';
 import { parsePetWeight, petInitial, titleCase } from '../../utils/health-records';
 import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
 import { VosDatePickerComponent } from '../../shared/vos-date-picker.component';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
+import { HealthEmptyComponent } from '../../shared/health-empty.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule, VosSelectComponent, VosDatePickerComponent, VosBackButtonComponent],
+  imports: [RouterLink, FormsModule, VosSelectComponent, VosDatePickerComponent, HealthShellComponent, HealthEmptyComponent],
   selector: 'app-weight-trend',
   template: `
-    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
-
-    <header class="head">
-      <span class="avatar" aria-hidden="true">{{ petInitial(petName()) }}</span>
-      <div>
-        <p class="kicker">Health record</p>
-        <h1>{{ titleCase(petName()) || 'Pet' }}’s Weight</h1>
-        <p class="lede">Visit vitals and entries you add — not a fitness score.</p>
-      </div>
-    </header>
+    <vos-health-shell
+      [petId]="petId"
+      section="weight"
+      sectionTitle="Weight"
+      lede="Visit vitals and entries you add — not a fitness score."
+    >
 
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -47,28 +44,29 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
               <strong>{{ points().length }}</strong>
             </div>
           </div>
-          <svg class="chart" viewBox="0 0 320 140" preserveAspectRatio="none" role="img">
-            <defs>
-              <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#FD4A29" stop-opacity="0.35"/>
-                <stop offset="100%" stop-color="#FD4A29" stop-opacity="0"/>
-              </linearGradient>
-            </defs>
-            <path [attr.d]="chartArea()" fill="url(#wg)" />
-            <path [attr.d]="chartPath()" fill="none" stroke="#FD4A29" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-            @for (pt of chartDots(); track pt.i) {
-              <circle [attr.cx]="pt.x" [attr.cy]="pt.y" r="4.5" fill="#fff" stroke="#FD4A29" stroke-width="2" />
-            }
-          </svg>
+          @if (points().length > 1) {
+            <svg class="chart" viewBox="0 0 320 140" width="320" height="140" preserveAspectRatio="none" role="img">
+              <defs>
+                <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#FD4A29" stop-opacity="0.35"/>
+                  <stop offset="100%" stop-color="#FD4A29" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path [attr.d]="chartArea()" fill="url(#wg)" />
+              <path [attr.d]="chartPath()" fill="none" stroke="#FD4A29" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+              @for (pt of chartDots(); track pt.i) {
+                <circle [attr.cx]="pt.x" [attr.cy]="pt.y" r="4.5" fill="#fff" stroke="#FD4A29" stroke-width="2" />
+              }
+            </svg>
+          }
         </section>
       }
 
       @if (!points().length) {
-        <div class="empty">
-          <div class="empty__mark" aria-hidden="true"></div>
-          <h2>No weight history yet</h2>
-          <p>Weights from visits will appear here. You can also log a past reading below.</p>
-        </div>
+        <vos-health-empty
+          title="No weight history yet"
+          message="Weights from visits will appear here. You can also log a past reading below."
+        />
       } @else {
         <h2 class="sec">History</h2>
         @for (p of points(); track trackP(p)) {
@@ -106,8 +104,10 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         </button>
       </section>
     }
+    </vos-health-shell>
   `,
   styles: [`
+    :host { display: block; }
     .head { display: flex; gap: 14px; align-items: flex-start; margin: 8px 0 16px; }
     .avatar {
       width: 48px; height: 48px; border-radius: 50%;
@@ -130,15 +130,21 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
       font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
       color: var(--vos-ink-muted); font-weight: 700;
     }
-    .chart-card { margin-bottom: 12px; padding: 16px; }
+    .chart-card { margin-bottom: 12px; padding: 16px; height: auto; }
     .chart-meta {
-      display: flex; gap: 28px; margin-bottom: 12px;
+      display: flex; gap: 28px;
     }
     .label {
       margin: 0; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
       color: var(--vos-ink-muted); font-weight: 700;
     }
-    .chart { width: 100%; height: 140px; display: block; }
+    .chart {
+      display: block;
+      width: 100%;
+      height: 140px;
+      max-height: 140px;
+      margin-top: 12px;
+    }
     .row {
       display: flex; gap: 12px; align-items: center; margin-bottom: 8px; padding: 12px 14px;
     }
@@ -269,13 +275,15 @@ export class WeightTrendComponent implements OnInit, OnDestroy {
   }
 
   async load() {
+    const id = this.petId;
     this.loading.set(true);
     this.error.set('');
     try {
-      const pet = await this.api.pet(this.petId).catch(() => null);
+      const pet = await this.api.pet(id).catch(() => null);
+      let list = (await this.api.weightTrend(id)) || [];
+      if (id !== this.petId) return;
       this.petName.set(pet?.name || '');
 
-      let list = (await this.api.weightTrend(this.petId)) || [];
       if (!list.length) {
         const parsed = parsePetWeight(pet?.weight);
         if (parsed) {
@@ -289,14 +297,14 @@ export class WeightTrendComponent implements OnInit, OnDestroy {
           ];
         }
       }
-      // Merge local extras
       const local = this.readLocal();
       const merged = this.sorted([...list, ...local.filter((l) => !list.some((x) => this.samePoint(x, l)))]);
       this.points.set(merged);
     } catch (e: any) {
+      if (id !== this.petId) return;
       this.error.set(e?.error?.message || e?.message || 'Failed');
     } finally {
-      this.loading.set(false);
+      if (id === this.petId) this.loading.set(false);
     }
   }
 

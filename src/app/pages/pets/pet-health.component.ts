@@ -1,25 +1,27 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
-import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
+import { HealthShellComponent } from '../../shared/health-shell.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent, VosTitleCasePipe],
+  imports: [RouterLink, HealthShellComponent],
   selector: 'app-pet-health',
   template: `
-    <vos-back-button [fallback]="['/pets', petId]" fallbackLabel="Pet" />
-    <h1>Pet Health</h1>
+    <vos-health-shell
+      [petId]="petId"
+      section="overview"
+      sectionTitle="Health"
+      lede="Ongoing care records — no scores, just what’s on file."
+    >
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
     }
     @if (loading()) {
       <div class="vos-skel"></div>
     } @else if (summary(); as s) {
-      <p class="vos-muted">{{ s.pet?.name | vosTitleCase }} · Overview from recorded care only</p>
-
       <section class="vos-card">
         <p class="label">Care status</p>
         @if (s.careStatus?.upcomingFollowUp; as fu) {
@@ -98,24 +100,10 @@ import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
         <a class="vos-btn vos-btn-ghost" [routerLink]="['/assistant']" [queryParams]="{ petId }">VetonSpot Assistant</a>
       </div>
 
-      <nav class="tabs" aria-label="Health sections">
-        <a class="tab on" [routerLink]="['/pets', petId, 'health']">Overview</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'timeline']">Timeline</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'medications']">Medications</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'vaccinations']">Vaccinations</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'diagnostics']">Diagnostics</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'conditions']">Conditions</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'care-plans']">Care plans</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'documents']">Documents</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'reminders']">Reminders</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'calendar']">Calendar</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'weight']">Weight</a>
-        <a class="tab" [routerLink]="['/pets', petId, 'passport']">Passport</a>
-      </nav>
     }
+    </vos-health-shell>
   `,
   styles: [`
-    h1 { margin: 4px 0; font-family: var(--vos-display); }
     .label {
       margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
       color: var(--vos-ink-muted); font-weight: 700;
@@ -127,34 +115,19 @@ import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
     .row span { color: var(--vos-ink-muted); font-size: 0.9rem; }
     .note { margin: 12px 0 0; font-size: 0.85rem; color: var(--vos-ink-muted); }
     .quick-actions { display: grid; gap: 8px; margin: 14px 0; }
-    .tabs {
-      display: flex; flex-wrap: wrap; gap: 6px;
-      margin: 14px 0 0; padding: 4px;
-      background: #f3efe6; border-radius: 14px;
-    }
-    .tab {
-      display: inline-flex; align-items: center;
-      min-height: 36px; padding: 6px 12px; border-radius: 10px;
-      text-decoration: none; color: var(--vos-ink-muted);
-      font-weight: 700; font-size: 0.88rem; white-space: nowrap;
-    }
-    .tab:hover { color: var(--vos-ink); background: rgba(255,255,255,0.55); }
-    .tab.on {
-      background: #fff; color: var(--vos-ink);
-      box-shadow: 0 4px 12px rgba(10, 10, 10, 0.06);
-    }
     .linkish {
       margin-left: 8px; background: none; border: 0; color: var(--vos-brand);
       font-weight: 700; cursor: pointer;
     }
   `],
 })
-export class PetHealthComponent implements OnInit {
+export class PetHealthComponent implements OnInit, OnDestroy {
   readonly summary = signal<any>(null);
   readonly careNext = signal<any>(null);
   readonly loading = signal(true);
   readonly error = signal('');
   petId = '';
+  private sub?: Subscription;
 
   constructor(
     private api: CustomerApiService,
@@ -163,9 +136,17 @@ export class PetHealthComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    this.petId = this.route.snapshot.paramMap.get('id') || '';
-    if (this.petId) this.activePet.set(this.petId);
-    void this.load();
+    this.sub = this.route.paramMap.subscribe((pm) => {
+      const id = pm.get('id') || '';
+      if (!id || id === this.petId) return;
+      this.petId = id;
+      this.activePet.set(id);
+      void this.load();
+    });
+  }
+
+  ngOnDestroy() {
+    this.sub?.unsubscribe();
   }
 
   conditionNames(list: any[]): string {
@@ -231,19 +212,22 @@ export class PetHealthComponent implements OnInit {
   }
 
   async load() {
+    const id = this.petId;
     this.loading.set(true);
     this.error.set('');
     try {
       const [summary, careNext] = await Promise.all([
-        this.api.healthSummary(this.petId),
-        this.api.careNext(this.petId).catch(() => null),
+        this.api.healthSummary(id),
+        this.api.careNext(id).catch(() => null),
       ]);
+      if (id !== this.petId) return;
       this.summary.set(summary);
       this.careNext.set(careNext);
     } catch (e: any) {
+      if (id !== this.petId) return;
       this.error.set(e?.error?.message || e?.message || 'Failed');
     } finally {
-      this.loading.set(false);
+      if (id === this.petId) this.loading.set(false);
     }
   }
 }

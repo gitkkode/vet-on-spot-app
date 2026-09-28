@@ -122,6 +122,19 @@ export function getCachedPetPhotoUrl(petId: string): string {
   }
 }
 
+export function clearCachedPetPhotoUrl(petId: string) {
+  const id = String(petId || '').trim();
+  if (!id || typeof localStorage === 'undefined') return;
+  try {
+    const map = readCache();
+    if (!(id in map)) return;
+    delete map[id];
+    localStorage.setItem(CACHE_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function fileToDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

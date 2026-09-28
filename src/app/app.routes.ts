@@ -28,6 +28,11 @@ export const routes: Routes = [
     data: { doc: 'terms' },
   },
   {
+    path: 'share/passport/:token',
+    loadComponent: () =>
+      import('./pages/share/passport-share.component').then((m) => m.PassportShareComponent),
+  },
+  {
     path: '',
     loadComponent: () => import('./layout/shell.component').then((m) => m.ShellComponent),
     canActivate: [authGuard, customerProfileGuard],

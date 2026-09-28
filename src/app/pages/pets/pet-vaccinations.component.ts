@@ -8,33 +8,20 @@ import {
   titleCase,
   vaccinationsFromTimeline,
 } from '../../utils/health-records';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
+import { HealthEmptyComponent } from '../../shared/health-empty.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent],
+  imports: [RouterLink, HealthShellComponent, HealthEmptyComponent],
   selector: 'app-pet-vaccinations',
   template: `
-    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
-
-    <header class="head">
-      <div class="who" aria-hidden="true">
-        <span class="avatar">{{ petInitial(petName()) }}</span>
-      </div>
-      <div>
-        <p class="kicker">Health record</p>
-        <h1>{{ titleCase(petName()) || 'Pet' }}’s Vaccinations</h1>
-        <p class="lede">Immunizations from visits and your care team.</p>
-      </div>
-    </header>
-
-    <div class="switcher" role="tablist" aria-label="Switch pet">
-      @for (p of pets(); track p.id) {
-        <button type="button" class="chip" [class.on]="petId === p.id" (click)="switchPet(p.id)">
-          {{ titleCase(p.name) }}
-        </button>
-      }
-    </div>
+    <vos-health-shell
+      [petId]="petId"
+      section="vaccinations"
+      sectionTitle="Vaccinations"
+      lede="Immunizations from visits and your care team."
+    >
 
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -42,15 +29,13 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
     @if (loading()) {
       <div class="vos-skel"></div>
     } @else if (!items().length) {
-      <div class="empty">
-        <div class="empty__mark" aria-hidden="true"></div>
-        <h2>No vaccinations on file</h2>
-        <p>When your vet records a vaccine during a visit, it shows up here. You can also keep paper records in Documents.</p>
-        <div class="empty__actions">
-          <a class="vos-btn" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
-          <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petId, 'documents']">Upload past records</a>
-        </div>
-      </div>
+      <vos-health-empty
+        title="No vaccinations on file"
+        message="When your vet records a vaccine during a visit, it shows up here. You can also keep paper records in Documents."
+      >
+        <a class="vos-btn" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
+        <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petId, 'documents']">Upload past records</a>
+      </vos-health-empty>
     } @else {
       @if (fromVisits()) {
         <p class="hint">Showing vaccines from completed visits — formal vaccine cards will appear when your vet files them.</p>
@@ -74,6 +59,7 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         </article>
       }
     }
+    </vos-health-shell>
   `,
   styles: [`
     .head { display: flex; gap: 14px; align-items: flex-start; margin: 8px 0 14px; }

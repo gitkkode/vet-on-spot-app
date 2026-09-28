@@ -823,7 +823,15 @@ export class LoginComponent implements OnInit, AfterViewChecked {
         await this.router.navigateByUrl('/home');
       }
     } catch (e: any) {
-      this.error.set(e?.error?.message || e?.message || 'Invalid OTP');
+      const msg = String(e?.error?.message || e?.message || '');
+      const network =
+        e?.status === 0 ||
+        /failed to fetch|networkerror|timed out|timeout|unknown error|status code 0/i.test(msg);
+      this.error.set(
+        network
+          ? 'That OTP matched, but the VetOnSpot server did not respond. Check your connection and tap Continue again.'
+          : msg || 'Invalid OTP',
+      );
     } finally {
       this.loading.set(false);
     }

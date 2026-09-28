@@ -8,33 +8,20 @@ import {
   petInitial,
   titleCase,
 } from '../../utils/health-records';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
+import { HealthEmptyComponent } from '../../shared/health-empty.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent],
+  imports: [RouterLink, HealthShellComponent, HealthEmptyComponent],
   selector: 'app-pet-conditions',
   template: `
-    <vos-back-button [fallback]="['/pets', petId, 'health']" fallbackLabel="Health" />
-
-    <header class="head">
-      <div class="who" aria-hidden="true">
-        <span class="avatar">{{ petInitial(petName()) }}</span>
-      </div>
-      <div>
-        <p class="kicker">Health record</p>
-        <h1>{{ titleCase(petName()) || 'Pet' }}’s Conditions</h1>
-        <p class="lede">Problem list from your care team — not a diagnosis tool.</p>
-      </div>
-    </header>
-
-    <div class="switcher" role="tablist" aria-label="Switch pet">
-      @for (p of pets(); track p.id) {
-        <button type="button" class="chip" [class.on]="petId === p.id" (click)="switchPet(p.id)">
-          {{ titleCase(p.name) }}
-        </button>
-      }
-    </div>
+    <vos-health-shell
+      [petId]="petId"
+      section="conditions"
+      sectionTitle="Conditions"
+      lede="Problem list from your care team — not a diagnosis tool."
+    >
 
     @if (error()) {
       <div class="vos-err">{{ error() }} <button type="button" class="linkish" (click)="load()">Retry</button></div>
@@ -42,15 +29,13 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
     @if (loading()) {
       <div class="vos-skel"></div>
     } @else if (!items().length) {
-      <div class="empty">
-        <div class="empty__mark" aria-hidden="true"></div>
-        <h2>No conditions on file</h2>
-        <p>Diagnoses your vet records during visits will appear here. Past paperwork can live in Documents.</p>
-        <div class="empty__actions">
-          <a class="vos-btn" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
-          <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petId, 'documents']">Upload past records</a>
-        </div>
-      </div>
+      <vos-health-empty
+        title="No conditions on file"
+        message="Diagnoses your vet records during visits will appear here. Past paperwork can live in Documents."
+      >
+        <a class="vos-btn" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
+        <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petId, 'documents']">Upload past records</a>
+      </vos-health-empty>
     } @else {
       @if (fromVisits()) {
         <p class="hint">Pulled from visit notes — formal problem-list entries appear when your vet files them.</p>
@@ -76,6 +61,7 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         </article>
       }
     }
+    </vos-health-shell>
   `,
   styles: [`
     .head { display: flex; gap: 14px; align-items: flex-start; margin: 8px 0 14px; }

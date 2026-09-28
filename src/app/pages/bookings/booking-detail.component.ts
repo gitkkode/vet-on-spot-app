@@ -7,6 +7,7 @@ import { VosDatePickerComponent } from '../../shared/vos-date-picker.component';
 import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
 import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 import { displayPetName, titleCase } from '../../utils/health-records';
+import { dedupeAddressText } from '../../utils/address';
 import {
   applyPendingEditToBooking,
   markBookingSuperseded,
@@ -123,7 +124,7 @@ type PendingEdit = PendingBookingEdit;
       <section class="facts" aria-label="Visit details">
         <button type="button" class="fact" style="--i: 0" (click)="nudgeFact(0)" [class.fact--tap]="tappedFact() === 0">
           <em>Where</em>
-          <strong>{{ titleCase(booking.location) || 'Address pending' }}</strong>
+          <strong>{{ prettyLocation(booking.location) || 'Address pending' }}</strong>
         </button>
         <button type="button" class="fact" style="--i: 1" (click)="nudgeFact(1)" [class.fact--tap]="tappedFact() === 1">
           <em>Doctor</em>
@@ -1527,6 +1528,11 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
 
   displayPetName = displayPetName;
   titleCase = titleCase;
+
+  prettyLocation(raw: unknown): string {
+    const cleaned = dedupeAddressText(raw);
+    return cleaned ? titleCase(cleaned) : '';
+  }
 
   openEdit() {
     const booking = this.b();

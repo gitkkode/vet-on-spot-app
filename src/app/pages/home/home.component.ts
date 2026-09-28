@@ -205,7 +205,12 @@ import { displayPetName } from '../../utils/health-records';
                   </div>
                 </div>
                 <div class="moment__art" aria-hidden="true">
-                  <span class="moment__paw"></span>
+                  <svg class="moment__icon" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      fill="currentColor"
+                      d="M20.5 22.2c0 3.4-2.4 5.8-5.4 5.8s-5.4-2.4-5.4-5.8 2.4-6.2 5.4-6.2 5.4 2.8 5.4 6.2Zm14.2-1.6c0 3.6-2.6 6.2-5.8 6.2s-5.8-2.6-5.8-6.2 2.6-6.6 5.8-6.6 5.8 3 5.8 6.6Zm14.8 1.6c0 3.4-2.4 5.8-5.4 5.8s-5.4-2.4-5.4-5.8 2.4-6.2 5.4-6.2 5.4 2.8 5.4 6.2Zm8.6 8.4c0 3.2-2.2 5.4-5 5.4s-5-2.2-5-5.4 2.2-5.8 5-5.8 5 2.6 5 5.8ZM40.2 33.8c-2.8-2.6-6.6-4-10.2-4s-7.4 1.4-10.2 4c-4.2 3.8-5.2 9.2-2.6 13.4 1.6 2.6 4.2 4.2 7.2 4.6.8.1 1.5-.1 2.1-.5 1.2-.8 2.6-1.2 3.5-1.2s2.3.4 3.5 1.2c.6.4 1.3.6 2.1.5 3-.4 5.6-2 7.2-4.6 2.6-4.2 1.6-9.6-2.6-13.4Z"
+                    />
+                  </svg>
                 </div>
               </div>
             </section>
@@ -961,22 +966,24 @@ import { displayPetName } from '../../utils/health-records';
     }
     .moment__copy { position: relative; z-index: 1; max-width: 48ch; }
     .moment__art {
-      width: 110px; height: 110px;
+      width: 112px;
+      height: 112px;
       border-radius: 28px;
-      background: rgba(255,255,255,0.12);
-      display: flex; align-items: center; justify-content: center;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+      display: flex;
+      align-items: center;
+      justify-content: center;
       flex-shrink: 0;
+      backdrop-filter: blur(8px);
     }
-    .moment__paw {
-      width: 42px; height: 42px;
-      border-radius: 50% 50% 45% 45%;
-      background: rgba(255,255,255,0.35);
-      position: relative;
-      box-shadow:
-        -18px -16px 0 -10px rgba(255,255,255,0.35),
-        18px -16px 0 -10px rgba(255,255,255,0.35),
-        -22px 2px 0 -12px rgba(255,255,255,0.3),
-        22px 2px 0 -12px rgba(255,255,255,0.3);
+    .moment__icon {
+      width: 52px;
+      height: 52px;
+      color: #fff;
+      opacity: 0.95;
+      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.18));
     }
     .moment__label {
       margin: 0 0 10px;

@@ -161,7 +161,8 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 20px;
       align-items: stretch;
-      height: min(560px, calc(100dvh - 250px));
+      height: min(680px, calc(100dvh - 220px));
+      min-height: 420px;
     }
 
     .panel {
@@ -222,23 +223,39 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
       flex: 1 1 auto;
       min-height: 0;
       padding: 18px 20px 20px;
+      display: flex;
+      flex-direction: column;
     }
 
     .form {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 12px;
       margin: 0;
+      flex: 1 1 auto;
+      min-height: 0;
+      height: 100%;
     }
     .form__fields {
       display: flex;
       flex-direction: column;
       gap: 14px;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    .form__fields textarea {
+      min-height: 96px;
+      resize: vertical;
     }
     .form__actions {
+      flex: 0 0 auto;
       display: flex;
       justify-content: flex-start;
-      padding-top: 2px;
+      padding-top: 12px;
+      border-top: 1px solid var(--vos-border);
+      background: #fff;
     }
     .form__actions .vos-btn {
       min-width: 140px;
@@ -452,33 +469,56 @@ export class SupportComponent implements OnInit {
   async addComment(t: any) {
     const text = this.comment.trim();
     if (!text) return;
+    const ticketId = String(t?.id || t?.displayId || '').trim();
+    if (!ticketId) {
+      this.error.set('This request has no id, so a comment cannot be attached.');
+      return;
+    }
     this.commenting.set(true);
     this.error.set('');
     this.ok.set('');
     try {
-      // Prefer a ticket follow-up endpoint when available; fall back to a linked support note.
-      try {
-        await this.api.createSupport({
-          category: t.category || this.category || 'other',
-          subject: `Re: ${t.subject || t.displayId || 'Support request'}`,
-          body: text,
-          parentTicketId: t.id,
-          ticketId: t.id,
-        });
-      } catch {
-        await this.api.createSupport({
-          category: 'other',
-          subject: `Follow-up on ${t.displayId || t.id}`,
-          body: text,
-        });
-      }
-      this.ok.set('Comment sent to support.');
+      const result = await this.api.addSupportComment(ticketId, text, {
+        category: t.category,
+        subject: t.subject,
+        displayId: t.displayId,
+      });
       this.comment = '';
       await this.load();
+      if (result.via === 'comment') {
+        this.attachLocalReply(t, text);
+        this.ok.set('Comment added to this request.');
+      } else {
+        this.ok.set(
+          'Comment sent as a follow-up request. Replies stay on the same ticket once the comment API is live.',
+        );
+      }
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Could not send comment');
     } finally {
       this.commenting.set(false);
     }
+  }
+
+  /** Keep the reply visible if GET /support does not nest comments yet. */
+  private attachLocalReply(t: any, text: string) {
+    const id = t?.id || t?.displayId;
+    this.tickets.update((list) =>
+      list.map((item) => {
+        if ((item.id || item.displayId) !== id) return item;
+        const existing = item.responses || item.replies || item.messages || [];
+        const already = existing.some(
+          (r: any) => String(r?.body || r?.message || r?.text || '').trim() === text,
+        );
+        if (already) return item;
+        return {
+          ...item,
+          responses: [
+            ...existing,
+            { body: text, authorName: 'You', createdAt: new Date().toISOString() },
+          ],
+        };
+      }),
+    );
   }
 }

@@ -7,7 +7,14 @@ import { AuthService } from '../services/auth.service';
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
   const router = inject(Router);
-  const publicCall = /\/auth\/otp\//.test(req.url);
+  const path = req.url.split('?')[0];
+  const publicCall =
+    /\/auth\/otp\//.test(req.url) ||
+    (req.method === 'GET' &&
+      !/\/customers\/me\//.test(path) &&
+      (/\/public\/passport-shares\/[^/]+$/.test(path) ||
+        /\/passport-shares\/[^/]+$/.test(path) ||
+        /\/share\/passport\/[^/]+$/.test(path)));
 
   return from(auth.getIdTokenFresh()).pipe(
     switchMap((token) => {

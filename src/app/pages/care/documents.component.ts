@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, signal } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -21,31 +21,20 @@ import {
   normalizeDocCategory,
 } from '../../utils/pet-documents';
 import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
-import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { HealthShellComponent } from '../../shared/health-shell.component';
+import { HealthEmptyComponent } from '../../shared/health-empty.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule, VosSelectComponent, VosBackButtonComponent],
+  imports: [RouterLink, FormsModule, VosSelectComponent, HealthShellComponent, HealthEmptyComponent],
   selector: 'app-documents',
   template: `
-    <vos-back-button [fallback]="petId ? ['/pets', petId, 'health'] : '/health'" fallbackLabel="Health" />
-
-    <header class="head">
-      @if (petName()) {
-        <span class="avatar" aria-hidden="true">{{ petInitial(petName()) }}</span>
-      }
-      <div>
-        <p class="kicker">Health record</p>
-        <h1>
-          @if (petName()) {
-            {{ titleCase(petName()) }}’s Documents
-          } @else {
-            Documents
-          }
-        </h1>
-        <p class="lede">Upload IDs, photos, past reports, and care files — organised by category.</p>
-      </div>
-    </header>
+    <vos-health-shell
+      [petId]="petId"
+      section="documents"
+      sectionTitle="Documents"
+      lede="Upload IDs, photos, past reports, and care files — organised by category."
+    >
 
     @if (error()) {
       <div class="vos-err">{{ error() }}</div>
@@ -91,38 +80,97 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         @for (g of groups(); track g.category.id) {
           <h2 class="sec">{{ g.category.label }}</h2>
           @for (d of g.items; track trackDoc($index, d)) {
-            @if (d.kind === 'link') {
+            @if (d.kind === 'link' || isDerivedDoc(d)) {
               <a class="vos-card item link-card" [routerLink]="d.link">
                 <strong>{{ d.fileName }}</strong>
                 <span class="vos-muted">{{ prettyCat(d.category) }} · {{ (d.createdAt || '').slice(0, 10) || '—' }}</span>
               </a>
             } @else {
-              <button type="button" class="vos-card item" (click)="open(d)">
-                <strong>{{ d.fileName || prettyCat(d.category) }}</strong>
-                <span class="vos-muted">{{ prettyCat(d.category) }} · {{ (d.createdAt || '').slice(0, 10) || '—' }}</span>
-              </button>
+              <div class="vos-card item item--managed">
+                <button type="button" class="item__main" (click)="open(d)">
+                  <strong>{{ d.fileName || prettyCat(d.category) }}</strong>
+                  <span class="vos-muted">{{ prettyCat(d.category) }} · {{ (d.createdAt || '').slice(0, 10) || '—' }}</span>
+                </button>
+                <div class="item__acts">
+                  <button type="button" class="act" (click)="open(d)">Open</button>
+                  <button type="button" class="act" (click)="startEdit(d)" [disabled]="busyId() === d.id">Edit</button>
+                  <button type="button" class="act" (click)="pickReplace(d)" [disabled]="busyId() === d.id">Change</button>
+                  <button type="button" class="act act--danger" (click)="confirmRemove(d)" [disabled]="busyId() === d.id">
+                    {{ busyId() === d.id && removing() ? 'Removing…' : 'Remove' }}
+                  </button>
+                </div>
+              </div>
             }
           }
         }
       } @else {
-        <div class="empty">
-          <div class="empty__mark" aria-hidden="true"></div>
-          <h2>No documents yet</h2>
-          <p>
-            Upload ID papers, past reports, vaccination cards, or extra photos.
-            Visit summaries also appear here after completed appointments.
-          </p>
-          <div class="empty__actions">
-            @if (petId) {
-              <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
-              <a class="vos-btn" routerLink="/book/new">Book a visit</a>
-            } @else {
-              <a class="vos-btn" routerLink="/health">Back to Health</a>
-            }
-          </div>
-        </div>
+        <vos-health-empty
+          title="No documents yet"
+          message="Upload ID papers, past reports, vaccination cards, or extra photos. Visit summaries also appear here after completed appointments."
+        >
+          @if (petId) {
+            <a class="vos-btn vos-btn-secondary" [routerLink]="['/pets', petId, 'timeline']">View timeline</a>
+            <a class="vos-btn" routerLink="/book/new">Book a visit</a>
+          } @else {
+            <a class="vos-btn" routerLink="/health">Back to Health</a>
+          }
+        </vos-health-empty>
       }
     }
+
+    <input
+      #replaceInput
+      type="file"
+      class="sr-file"
+      [accept]="acceptFor(editCategory)"
+      (change)="onReplaceFile($event)"
+    />
+
+    @if (editDoc(); as ed) {
+      <div class="modal-layer" role="presentation" (click)="closeEdit()">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-doc-title" (click)="$event.stopPropagation()">
+          <h2 id="edit-doc-title">Edit document</h2>
+          <p class="modal__file">{{ ed.fileName || 'Document' }}</p>
+          <label class="field">
+            Category
+            <vos-select
+              name="editDocCategory"
+              ariaLabel="Document category"
+              [options]="categoryOptions"
+              [(ngModel)]="editCategory"
+            />
+          </label>
+          @if (editError()) {
+            <p class="modal__err" role="alert">{{ editError() }}</p>
+          }
+          <div class="modal__acts">
+            <button type="button" class="ghost" (click)="closeEdit()" [disabled]="savingEdit()">Cancel</button>
+            <button type="button" class="vos-btn" (click)="saveEdit()" [disabled]="savingEdit()">
+              {{ savingEdit() ? 'Saving…' : 'Save category' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (removeDoc(); as rd) {
+      <div class="modal-layer" role="presentation" (click)="closeRemove()">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="remove-doc-title" (click)="$event.stopPropagation()">
+          <h2 id="remove-doc-title">Remove document?</h2>
+          <p>This removes <strong>{{ rd.fileName || 'this file' }}</strong> from {{ titleCase(petName()) || 'your pet' }}’s records.</p>
+          @if (editError()) {
+            <p class="modal__err" role="alert">{{ editError() }}</p>
+          }
+          <div class="modal__acts">
+            <button type="button" class="ghost" (click)="closeRemove()" [disabled]="removing()">Keep</button>
+            <button type="button" class="vos-btn danger" (click)="doRemove()" [disabled]="removing()">
+              {{ removing() ? 'Removing…' : 'Remove' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+    </vos-health-shell>
   `,
   styles: [`
     .head { display: flex; gap: 14px; align-items: flex-start; margin: 8px 0 16px; }
@@ -181,9 +229,78 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
     }
     .item {
       display: flex; flex-direction: column; gap: 4px; width: 100%;
-      text-align: left; cursor: pointer; margin-bottom: 10px; border: 0;
+      text-align: left; margin-bottom: 10px; border: 0;
     }
-    .link-card { text-decoration: none; color: inherit; }
+    .item--managed {
+      gap: 10px;
+      padding: 14px 16px;
+    }
+    .item__main {
+      display: flex; flex-direction: column; gap: 4px; width: 100%;
+      text-align: left; border: 0; background: transparent; padding: 0;
+      cursor: pointer; font: inherit; color: inherit;
+    }
+    .item__acts {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .act {
+      min-height: 34px; padding: 0 12px; border-radius: 999px;
+      border: 1px solid var(--vos-border); background: #fff;
+      font: inherit; font-size: 0.85rem; font-weight: 700;
+      color: var(--vos-ink); cursor: pointer;
+    }
+    .act:disabled { opacity: 0.55; cursor: not-allowed; }
+    .act--danger {
+      color: #B42318; border-color: rgba(180, 35, 24, 0.35);
+    }
+    .link-card { text-decoration: none; color: inherit; cursor: pointer; }
+    .sr-file {
+      position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;
+    }
+    .modal-layer {
+      position: fixed; inset: 0; z-index: 80;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px; background: rgba(10, 10, 10, 0.45);
+    }
+    .modal {
+      width: min(420px, 100%);
+      padding: 22px 20px;
+      border-radius: 18px;
+      background: #fff;
+      border: 1px solid var(--vos-border);
+      box-shadow: 0 20px 50px rgba(10, 10, 10, 0.2);
+    }
+    .modal h2 {
+      margin: 0 0 8px; font-family: var(--vos-display); font-size: 1.25rem;
+    }
+    .modal p { margin: 0 0 14px; color: var(--vos-ink-muted); line-height: 1.45; }
+    .modal__file {
+      margin: 0 0 14px !important;
+      color: var(--vos-ink) !important;
+      font-weight: 700;
+    }
+    .modal__err {
+      margin: 0 0 12px !important;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #fff5f3;
+      border: 1px solid rgba(180, 35, 24, 0.22);
+      color: #B42318 !important;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    .modal__acts {
+      display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 8px;
+    }
+    .modal__acts .ghost {
+      min-height: 44px; padding: 0 16px; border-radius: 999px;
+      border: 1px solid var(--vos-border); background: #fff;
+      font: inherit; font-weight: 700; cursor: pointer;
+    }
+    .modal__acts .vos-btn { min-width: 120px; }
+    .modal__acts .danger {
+      background: #B42318 !important;
+    }
     .empty {
       text-align: center; padding: 36px 22px;
       border-radius: 24px; background: #fffef9; border: 1px solid var(--vos-border);
@@ -203,8 +320,14 @@ export class DocumentsComponent implements OnInit, OnDestroy {
   readonly petName = signal('');
   readonly loading = signal(true);
   readonly uploading = signal(false);
+  readonly removing = signal(false);
+  readonly savingEdit = signal(false);
+  readonly busyId = signal('');
   readonly error = signal('');
   readonly ok = signal('');
+  readonly editError = signal('');
+  readonly editDoc = signal<any | null>(null);
+  readonly removeDoc = signal<any | null>(null);
   readonly categories = PET_DOC_CATEGORIES.filter((c) => c.id !== 'clinical');
   readonly categoryOptions: VosSelectOption[] = this.categories.map((c) => ({
     value: c.id,
@@ -212,8 +335,12 @@ export class DocumentsComponent implements OnInit, OnDestroy {
   }));
   readonly maxMb = Math.round(MAX_PET_DOC_BYTES / (1024 * 1024));
   uploadCategory: PetDocCategoryId = 'id';
+  editCategory: PetDocCategoryId = 'id';
   petId = '';
+  private replaceTarget: any | null = null;
   private sub?: Subscription;
+
+  @ViewChild('replaceInput') replaceInput?: ElementRef<HTMLInputElement>;
 
   constructor(
     private api: CustomerApiService,
@@ -235,6 +362,7 @@ export class DocumentsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.sub?.unsubscribe();
+    document.body.style.overflow = '';
   }
 
   prettyCat(cat: string) {
@@ -251,6 +379,154 @@ export class DocumentsComponent implements OnInit, OnDestroy {
 
   trackDoc(i: number, d: any) {
     return d?.id || `${d?.fileName}-${i}`;
+  }
+
+  isDerivedDoc(d: any): boolean {
+    const id = String(d?.id || '');
+    return (
+      d?.kind === 'link' ||
+      d?.source === 'visit' ||
+      id.startsWith('visit-doc-') ||
+      id.startsWith('rx-doc-') ||
+      !id
+    );
+  }
+
+  isManagedDoc(d: any): boolean {
+    return !this.isDerivedDoc(d);
+  }
+
+  startEdit(d: any) {
+    if (!this.isManagedDoc(d)) return;
+    this.editError.set('');
+    this.ok.set('');
+    this.error.set('');
+    this.editCategory = normalizeDocCategory(d?.category);
+    this.editDoc.set(d);
+    document.body.style.overflow = 'hidden';
+  }
+
+  closeEdit() {
+    if (this.savingEdit()) return;
+    this.editDoc.set(null);
+    this.editError.set('');
+    document.body.style.overflow = '';
+  }
+
+  async saveEdit() {
+    const d = this.editDoc();
+    if (!d?.id || this.savingEdit()) return;
+    this.savingEdit.set(true);
+    this.editError.set('');
+    this.busyId.set(String(d.id));
+    try {
+      await this.api.updatePetDocument(String(d.id), {
+        category: this.editCategory,
+        petId: this.petId,
+      });
+      this.ok.set(`Updated category to ${categoryLabel(this.editCategory)}.`);
+      this.editDoc.set(null);
+      document.body.style.overflow = '';
+      await this.load();
+    } catch (e: any) {
+      const msg = String(e?.error?.message || e?.message || 'Could not update document');
+      this.editError.set(
+        /route not found|missing/i.test(msg)
+          ? 'Document edit API is missing on the server. See API_README.md.'
+          : msg,
+      );
+    } finally {
+      this.savingEdit.set(false);
+      this.busyId.set('');
+    }
+  }
+
+  pickReplace(d: any) {
+    if (!this.isManagedDoc(d) || this.busyId()) return;
+    this.replaceTarget = d;
+    this.editCategory = normalizeDocCategory(d?.category);
+    this.error.set('');
+    this.ok.set('');
+    this.replaceInput?.nativeElement?.click();
+  }
+
+  async onReplaceFile(ev: Event) {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0] || null;
+    input.value = '';
+    const d = this.replaceTarget;
+    this.replaceTarget = null;
+    if (!file || !d?.id) return;
+    if (!isAllowedPetDocument(file)) {
+      this.error.set(
+        file.size > MAX_PET_DOC_BYTES
+          ? `File must be ${this.maxMb} MB or smaller.`
+          : 'Please choose a PDF, image, or Word document.',
+      );
+      return;
+    }
+    this.busyId.set(String(d.id));
+    this.uploading.set(true);
+    this.error.set('');
+    try {
+      await this.api.replacePetDocument(String(d.id), file, {
+        category: normalizeDocCategory(d.category),
+        petId: this.petId,
+      });
+      this.ok.set(`Replaced “${d.fileName || 'document'}” with “${file.name}”.`);
+      await this.load();
+    } catch (e: any) {
+      const msg = String(e?.error?.message || e?.message || 'Replace failed');
+      this.error.set(
+        /route not found|missing/i.test(msg)
+          ? 'Document change API is missing on the server. See API_README.md.'
+          : msg,
+      );
+    } finally {
+      this.uploading.set(false);
+      this.busyId.set('');
+    }
+  }
+
+  confirmRemove(d: any) {
+    if (!this.isManagedDoc(d)) return;
+    this.editError.set('');
+    this.error.set('');
+    this.ok.set('');
+    this.removeDoc.set(d);
+    document.body.style.overflow = 'hidden';
+  }
+
+  closeRemove() {
+    if (this.removing()) return;
+    this.removeDoc.set(null);
+    this.editError.set('');
+    document.body.style.overflow = '';
+  }
+
+  async doRemove() {
+    const d = this.removeDoc();
+    if (!d?.id || this.removing()) return;
+    this.removing.set(true);
+    this.busyId.set(String(d.id));
+    this.editError.set('');
+    try {
+      await this.api.deletePetDocument(String(d.id), this.petId);
+      this.ok.set(`Removed “${d.fileName || 'document'}”.`);
+      this.removeDoc.set(null);
+      document.body.style.overflow = '';
+      await this.load();
+    } catch (e: any) {
+      const msg = String(e?.error?.message || e?.message || 'Could not remove document');
+      this.editError.set(
+        /route not found|missing/i.test(msg)
+          ? 'Document remove API is missing on the server. See API_README.md.'
+          : msg,
+      );
+    } finally {
+      this.removing.set(false);
+      this.busyId.set('');
+    }
   }
 
   async onUpload(ev: Event) {

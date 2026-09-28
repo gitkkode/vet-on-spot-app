@@ -1,9 +1,9 @@
-import { Component, OnDestroy, OnInit, signal } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
-import { cropImageRegionToFile, resolvePetPhotoUrl, cachePetPhotoUrl, fileToDataUrl } from '../../utils/pet-photo';
+import { cropImageRegionToFile, resolvePetPhotoUrl, cachePetPhotoUrl, clearCachedPetPhotoUrl, fileToDataUrl, normalizePetRecord } from '../../utils/pet-photo';
 import {
   PET_DOC_CATEGORIES,
   PetDocCategoryId,
@@ -49,11 +49,11 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
     @if (error()) { <div class="vos-err">{{ error() }}</div> }
     @if (ok()) { <div class="vos-ok">{{ ok() }}</div> }
 
-    <form class="panel" (ngSubmit)="save()">
-      @if (stage() === 1) {
+    <form class="panel" novalidate (ngSubmit)="save()">
+      @if (stage() === 1 || isEdit) {
         <label class="field">
           Name <span class="req" aria-hidden="true">*</span>
-          <input [(ngModel)]="model.name" name="name" required autocomplete="off" placeholder="e.g. Jimmy" />
+          <input [(ngModel)]="model.name" name="name" autocomplete="off" placeholder="e.g. Jimmy" (ngModelChange)="onIdentityChange()" />
         </label>
 
         <p class="hint">Species <span class="req" aria-hidden="true">*</span></p>
@@ -68,9 +68,9 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
             <input
               [(ngModel)]="speciesOther"
               name="speciesOther"
-              required
               autocomplete="off"
               placeholder="e.g. Rabbit, Bird, Reptile"
+              (ngModelChange)="onIdentityChange()"
             />
           </label>
         }
@@ -83,13 +83,13 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
         <p class="hint">Sex <span class="req" aria-hidden="true">*</span></p>
         <div class="pills" role="group" aria-label="Sex">
           @for (g of sexOpts; track g) {
-            <button type="button" class="pill" [class.on]="model.gender === g" (click)="model.gender = g">{{ g }}</button>
+            <button type="button" class="pill" [class.on]="model.gender === g" (click)="setGender(g)">{{ g }}</button>
           }
         </div>
 
         <label class="field">
           Age / date of birth <span class="req" aria-hidden="true">*</span>
-          <input [(ngModel)]="model.ageOrDob" name="ageOrDob" required placeholder="e.g. 3 years or 2021-05-01" />
+          <input [(ngModel)]="model.ageOrDob" name="ageOrDob" placeholder="e.g. 3 years or 2021-05-01" (ngModelChange)="onIdentityChange()" />
         </label>
 
         @if (!isEdit) {
@@ -161,25 +161,54 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
           <textarea [(ngModel)]="model.specialNeeds" name="specialNeeds" rows="2" placeholder="Anxiety, mobility, diet…"></textarea>
         </label>
 
-        <div class="field">
+        <div class="field photo-field">
           Photo <span class="opt">(optional)</span>
-          <label class="upload" [class.upload--has]="!!preview() || !!model.photoUrl">
-            <input type="file" accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.bmp" (change)="onFile($event)" />
-            @if (preview()) {
-              <img class="upload__preview" [src]="preview()" alt="Selected photo preview" />
-              <span class="upload__change">Change photo</span>
-            } @else if (model.photoUrl) {
-              <img class="upload__preview" [src]="model.photoUrl" alt="Current photo" />
-              <span class="upload__change">Change photo</span>
-            } @else {
-              <span class="upload__icon" aria-hidden="true">＋</span>
-              <strong>Add a photo</strong>
-              <em>Any image · you choose the crop · max 5 MB</em>
-            }
-          </label>
+          <div class="photo-block">
+            <div
+              class="photo-frame"
+              [class.photo-frame--empty]="!displayPhoto()"
+              [class.photo-frame--clickable]="!displayPhoto()"
+              (click)="!displayPhoto() && pickPhoto()"
+              role="img"
+              [attr.aria-label]="displayPhoto() ? 'Pet photo' : 'No photo yet'"
+            >
+              @if (displayPhoto()) {
+                <img [src]="displayPhoto()" alt="Pet photo" (error)="onDisplayPhotoError()" />
+              } @else {
+                <span class="photo-frame__icon" aria-hidden="true">＋</span>
+                <strong>Add a photo</strong>
+                <em>Any image · crop to fit · max 5 MB</em>
+              }
+            </div>
+            <div class="photo-actions">
+              <button type="button" class="photo-btn" (click)="pickPhoto()" [disabled]="saving() || cropOpen()">
+                {{ displayPhoto() ? 'Change photo' : 'Choose photo' }}
+              </button>
+              @if (displayPhoto()) {
+                <button
+                  type="button"
+                  class="photo-btn photo-btn--ghost"
+                  (click)="removePhoto()"
+                  [disabled]="saving() || cropOpen()"
+                >
+                  Remove photo
+                </button>
+              }
+            </div>
+            <input
+              #photoInput
+              type="file"
+              class="photo-input"
+              accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.bmp"
+              (change)="onFile($event)"
+            />
+          </div>
           <span class="help">Accepted: any common image format. You’ll position and crop the photo yourself. Max 5 MB.</span>
           @if (photoError()) {
             <span class="field-err">{{ photoError() }}</span>
+          }
+          @if (photoRemoved()) {
+            <span class="help help--warn">Photo will be removed when you save changes.</span>
           }
         </div>
 
@@ -237,6 +266,9 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
             {{ saving() ? 'Saving…' : isEdit ? 'Save changes' : 'Save pet' }}
           </button>
         </div>
+        @if (isEdit && !canSave() && saveBlockReason()) {
+          <p class="save-hint" role="status">{{ saveBlockReason() }}</p>
+        }
       }
     </form>
 
@@ -471,77 +503,106 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
       color: #fff;
     }
 
-    .upload {
-      position: relative;
+    .photo-field { margin-top: 4px; }
+    .photo-block {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+      margin-top: 8px;
+    }
+    .photo-frame {
+      width: min(100%, 168px);
+      aspect-ratio: 1;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 1.5px solid var(--vos-border);
+      background: #faf8f4;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      margin-top: 7px;
-      min-height: 140px;
-      padding: 18px 14px;
-      border-radius: 16px;
-      border: 1.5px dashed var(--vos-border);
-      background: #faf8f4;
+      gap: 4px;
       text-align: center;
+      box-sizing: border-box;
+    }
+    .photo-frame--empty {
+      border-style: dashed;
+      padding: 12px;
+    }
+    .photo-frame--clickable {
       cursor: pointer;
-      overflow: hidden;
     }
-    .upload:hover { border-color: rgba(253, 74, 41, 0.45); }
-    .upload input {
-      position: absolute; inset: 0;
-      opacity: 0; cursor: pointer;
-      width: 100%; height: 100%;
-      margin: 0; padding: 0; min-height: 0;
-      border: 0; background: transparent;
+    .photo-frame--clickable:hover {
+      border-color: rgba(253, 74, 41, 0.45);
     }
-    .upload__icon {
-      width: 36px; height: 36px; border-radius: 50%;
-      display: inline-flex; align-items: center; justify-content: center;
-      background: var(--vos-brand-soft, #ffe8e2); color: var(--vos-brand, #FD4A29);
-      font-size: 1.2rem; font-weight: 700;
-    }
-    .upload strong {
-      font-family: var(--vos-display);
-      font-size: 1.05rem;
-      letter-spacing: -0.02em;
-      text-transform: none;
-      color: var(--vos-ink);
-      font-weight: 700;
-    }
-    .upload em {
-      font-style: normal;
-      font-size: 0.88rem;
-      color: var(--vos-ink-muted);
-      letter-spacing: 0;
-      text-transform: none;
-      font-weight: 600;
-    }
-    .upload--has {
-      padding: 0;
-      border-style: solid;
-      min-height: 0;
-      width: min(100%, 240px);
-      aspect-ratio: 1;
-      margin-top: 8px;
-      border-radius: 50%;
-      overflow: hidden;
-    }
-    .upload__preview {
+    .photo-frame img {
       width: 100%;
       height: 100%;
       object-fit: cover;
       object-position: center;
       display: block;
     }
-    .upload__change {
-      position: absolute; left: 12px; bottom: 12px;
-      padding: 6px 10px; border-radius: 999px;
-      background: rgba(10, 10, 10, 0.72); color: #fff;
-      font-size: 0.8rem; font-weight: 700;
-      letter-spacing: 0; text-transform: none;
+    .photo-frame__icon {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--vos-brand-soft, #ffe8e2); color: var(--vos-brand, #FD4A29);
+      font-size: 1.2rem; font-weight: 700;
+    }
+    .photo-frame strong {
+      font-family: var(--vos-display);
+      font-size: 0.95rem;
+      letter-spacing: -0.02em;
+      text-transform: none;
+      color: var(--vos-ink);
+      font-weight: 700;
+    }
+    .photo-frame em {
+      font-style: normal;
+      font-size: 0.75rem;
+      color: var(--vos-ink-muted);
+      letter-spacing: 0;
+      text-transform: none;
+      font-weight: 600;
+      max-width: 14ch;
+      line-height: 1.3;
+    }
+    .photo-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .photo-btn {
+      min-height: 40px;
+      padding: 0 16px;
+      border-radius: 999px;
+      border: 0;
+      background: #0a0a0a;
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .photo-btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .photo-btn--ghost {
+      background: #fff;
+      color: #B42318;
+      border: 1px solid rgba(180, 35, 24, 0.35);
+    }
+    .photo-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
       pointer-events: none;
+    }
+    .help--warn {
+      color: #B42318;
+      font-weight: 700;
     }
 
     .docs-field { margin-top: 4px; }
@@ -607,6 +668,13 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
       box-shadow: 0 10px 24px rgba(253, 74, 41, 0.3);
     }
     .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .save-hint {
+      margin: 10px 0 0;
+      text-align: right;
+      font-size: 0.88rem;
+      color: #B42318;
+      font-weight: 600;
+    }
     .ghost {
       background: transparent;
       color: var(--vos-ink-muted);
@@ -702,6 +770,8 @@ export class PetFormComponent implements OnInit, OnDestroy {
     weight: '', microchip: '', allergies: '', medicalNotes: '', specialNeeds: '',
   };
   photoFile: File | null = null;
+  /** True when user removed the existing photo and hasn't chosen a replacement. */
+  removePhotoOnSave = false;
   pendingDocs: Array<{ key: string; file: File; category: PetDocCategoryId }> = [];
   pendingDocCategory: PetDocCategoryId = 'id';
   readonly docCategories = PET_DOC_CATEGORIES.filter((c) => c.id !== 'clinical');
@@ -711,13 +781,18 @@ export class PetFormComponent implements OnInit, OnDestroy {
   }));
   categoryLabel = categoryLabel;
   readonly stage = signal(1);
+  /** Shown portrait — signal so edit load updates the view without waiting for dropdown CD. */
+  readonly displayPhoto = signal('');
   readonly preview = signal('');
+  readonly photoRemoved = signal(false);
   readonly saving = signal(false);
   readonly error = signal('');
   readonly ok = signal('');
   readonly microchipError = signal('');
   readonly photoError = signal('');
   readonly docError = signal('');
+  /** Forces Save-button re-eval after async pet load / identity edits. */
+  readonly formTick = signal(0);
   readonly cropOpen = signal(false);
   readonly cropSrc = signal('');
   readonly cropZoom = signal(1);
@@ -732,6 +807,9 @@ export class PetFormComponent implements OnInit, OnDestroy {
   private cropBaseScale = 1;
   private cropDragging = false;
   private cropDragOrigin = { x: 0, y: 0, panX: 0, panY: 0 };
+  private existingPhotoUrl = '';
+
+  @ViewChild('photoInput') photoInput?: ElementRef<HTMLInputElement>;
 
   constructor(
     private api: CustomerApiService,
@@ -752,12 +830,20 @@ export class PetFormComponent implements OnInit, OnDestroy {
     if (this.isEdit) {
       this.stage.set(2);
       try {
-        this.model = { ...this.model, ...(await this.api.pet(this.id)) };
+        const raw = await this.api.pet(this.id);
+        this.model = { ...this.model, ...(normalizePetRecord(raw) || raw || {}) };
         const url = resolvePetPhotoUrl(this.model);
-        if (url) this.model.photoUrl = url;
+        this.existingPhotoUrl = url;
+        this.model.photoUrl = url;
+        this.displayPhoto.set(url);
+        this.photoRemoved.set(false);
+        this.removePhotoOnSave = false;
         this.hydrateIdentityFields();
         this.hydrateSpeciesChoice();
         this.hydrateWeight();
+        this.hydrateMicrochip();
+        this.photoError.set('');
+        this.onIdentityChange();
       } catch (e: any) {
         this.error.set(e?.message || 'Load failed');
       }
@@ -771,6 +857,11 @@ export class PetFormComponent implements OnInit, OnDestroy {
 
   /** Normalize API aliases so edit Save isn't blocked by missing mapped fields. */
   private hydrateIdentityFields() {
+    if (!String(this.model.name || '').trim()) {
+      this.model.name = String(
+        this.model.petName || this.model.displayName || this.model.pet_name || '',
+      ).trim();
+    }
     if (!String(this.model.gender || '').trim()) {
       this.model.gender = String(this.model.sex || '').trim();
     }
@@ -779,8 +870,27 @@ export class PetFormComponent implements OnInit, OnDestroy {
         this.model.age || this.model.dob || this.model.dateOfBirth || this.model.date_of_birth || '',
       ).trim();
     }
-    if (!String(this.model.species || '').trim() && this.model.type) {
-      this.model.species = String(this.model.type).trim();
+    if (!String(this.model.species || '').trim()) {
+      this.model.species = String(
+        this.model.type || this.model.animalType || this.model.speciesName || this.model.petType || '',
+      ).trim();
+    }
+  }
+
+  private hydrateMicrochip() {
+    const digits = String(this.model.microchip || this.model.microchipId || this.model.chipId || '')
+      .replace(/\D/g, '')
+      .slice(0, 15);
+    this.model.microchip = digits;
+    if (!digits) {
+      this.microchipError.set('');
+      return;
+    }
+    if (![9, 10, 15].includes(digits.length)) {
+      // Keep digits for the user to fix, but don't silently disable Save — hint only.
+      this.microchipError.set('Enter a 9, 10, or 15-digit microchip ID (or clear the field).');
+    } else {
+      this.microchipError.set('');
     }
   }
 
@@ -792,6 +902,15 @@ export class PetFormComponent implements OnInit, OnDestroy {
     );
   }
 
+  onIdentityChange() {
+    this.formTick.update((n) => n + 1);
+  }
+
+  setGender(g: string) {
+    this.model.gender = g;
+    this.onIdentityChange();
+  }
+
   selectSpecies(s: string) {
     this.speciesChoice = s as 'Dog' | 'Cat' | 'Other';
     if (s === 'Other') {
@@ -800,19 +919,28 @@ export class PetFormComponent implements OnInit, OnDestroy {
       this.speciesOther = '';
       this.model.species = s;
     }
+    this.onIdentityChange();
   }
 
   /** Sync pill UI from loaded pet.species (Dog/Cat vs custom). */
   private hydrateSpeciesChoice() {
     const sp = String(this.model.species || '').trim();
-    if (sp === 'Dog' || sp === 'Cat') {
-      this.speciesChoice = sp;
+    const lower = sp.toLowerCase();
+    if (lower === 'dog') {
+      this.speciesChoice = 'Dog';
       this.speciesOther = '';
-    } else if (sp) {
+      this.model.species = 'Dog';
+    } else if (lower === 'cat') {
+      this.speciesChoice = 'Cat';
+      this.speciesOther = '';
+      this.model.species = 'Cat';
+    } else if (sp && lower !== 'other') {
       this.speciesChoice = 'Other';
-      this.speciesOther = sp === 'Other' ? '' : sp;
+      this.speciesOther = sp;
+      this.model.species = sp;
     } else {
-      this.speciesChoice = '';
+      // Unknown / literal "Other" with no detail — leave Other selected so user can specify
+      this.speciesChoice = sp ? 'Other' : '';
       this.speciesOther = '';
     }
   }
@@ -901,12 +1029,29 @@ export class PetFormComponent implements OnInit, OnDestroy {
   }
 
   canSave(): boolean {
-    if (this.photoError() || !this.isMicrochipOk()) return false;
-    // Edit: pet already exists — don't block photo/notes saves on optional identity aliases.
+    // Touch formTick so template re-runs after async hydrate / identity edits
+    void this.formTick();
+    if (this.cropOpen() || this.saving()) return false;
     if (this.isEdit) {
-      return !!(String(this.model.name || '').trim() && this.resolvedSpecies());
+      // Edit: never silently lock Save. Validate in save() with clear messages.
+      // Only block while crop dialog is open (handled above).
+      return true;
     }
-    return this.step1Valid();
+    return this.step1Valid() && this.isMicrochipOk() && !this.photoError();
+  }
+
+  /** Shown under Save when disabled so the block isn't silent. */
+  saveBlockReason(): string {
+    void this.formTick();
+    if (this.cropOpen()) return 'Finish or cancel the photo crop first.';
+    if (this.saving()) return '';
+    if (this.isEdit) return '';
+    if (this.photoError()) return this.photoError();
+    if (!this.step1Valid()) return 'Fill in Name, Species, Sex, and Age first.';
+    if (!this.isMicrochipOk()) {
+      return this.microchipError() || 'Check the microchip ID (or clear it).';
+    }
+    return '';
   }
 
   goToStep1() {
@@ -1003,6 +1148,8 @@ export class PetFormComponent implements OnInit, OnDestroy {
     this.cropRawFile = null;
     this.revokeCropSrc();
     this.cropDragging = false;
+    this.photoError.set('');
+    this.onIdentityChange();
   }
 
   async applyCrop() {
@@ -1029,7 +1176,11 @@ export class PetFormComponent implements OnInit, OnDestroy {
       );
       this.revokePreview();
       this.photoFile = cropped;
-      this.preview.set(URL.createObjectURL(cropped));
+      const blobUrl = URL.createObjectURL(cropped);
+      this.preview.set(blobUrl);
+      this.displayPhoto.set(blobUrl);
+      this.photoRemoved.set(false);
+      this.removePhotoOnSave = false;
       if (this.isEdit && this.id) {
         try {
           const dataUrl = await fileToDataUrl(cropped);
@@ -1044,8 +1195,36 @@ export class PetFormComponent implements OnInit, OnDestroy {
       this.error.set('');
     } catch {
       this.photoError.set('Could not crop that image. Try another photo.');
+      // Keep crop open so they can retry or cancel — don't leave Save stuck
     } finally {
       this.cropApplying.set(false);
+      this.onIdentityChange();
+    }
+  }
+
+  pickPhoto() {
+    if (this.saving() || this.cropOpen()) return;
+    this.photoInput?.nativeElement?.click();
+  }
+
+  removePhoto() {
+    if (this.saving() || this.cropOpen()) return;
+    this.photoError.set('');
+    this.revokePreview();
+    this.photoFile = null;
+    this.preview.set('');
+    this.displayPhoto.set('');
+    this.model.photoUrl = '';
+    this.photoRemoved.set(true);
+    this.removePhotoOnSave = !!this.isEdit && !!this.existingPhotoUrl;
+    if (this.photoInput?.nativeElement) this.photoInput.nativeElement.value = '';
+    this.onIdentityChange();
+  }
+
+  onDisplayPhotoError() {
+    // Broken remote URL — fall back to empty so user can re-add
+    if (!this.photoFile && !this.preview()) {
+      this.displayPhoto.set('');
     }
   }
 
@@ -1151,22 +1330,38 @@ export class PetFormComponent implements OnInit, OnDestroy {
     this.hydrateIdentityFields();
     if (this.isEdit) {
       if (!String(this.model.name || '').trim() || !this.resolvedSpecies()) {
-        this.error.set('Name and species are required.');
+        this.error.set(
+          !String(this.model.name || '').trim()
+            ? 'Name is required.'
+            : this.speciesChoice === 'Other'
+              ? 'Please specify the species.'
+              : 'Species is required.',
+        );
         return;
       }
+      // Soft microchip: allow clear, otherwise digits with valid length
+      const chip = String(this.model.microchip || '').replace(/\D/g, '').slice(0, 15);
+      this.model.microchip = chip;
+      if (chip && ![9, 10, 15].includes(chip.length)) {
+        this.microchipError.set('Enter a 9, 10, or 15-digit microchip ID (or clear the field).');
+        this.error.set(this.microchipError());
+        return;
+      }
+      this.microchipError.set('');
     } else if (!this.step1Valid()) {
       this.error.set('Please fill in Name, Species, Sex, and Age / date of birth.');
       this.stage.set(1);
       return;
-    }
-    if (!this.microchipValid()) {
+    } else if (!this.microchipValid()) {
       this.error.set(this.microchipError() || 'Please check the microchip ID.');
       return;
     }
-    if (this.photoError()) {
+    if (this.photoError() && !this.isEdit) {
       this.error.set(this.photoError());
       return;
     }
+    // Edit: clear stale photo errors so photo/docs changes can still save
+    if (this.isEdit) this.photoError.set('');
     const name = String(this.model.name || '').trim();
     if (this.isDuplicateName(name)) {
       this.error.set(
@@ -1207,13 +1402,18 @@ export class PetFormComponent implements OnInit, OnDestroy {
           }
           cachePetPhotoUrl(petId, photoUrl);
           this.model.photoUrl = photoUrl;
+          this.existingPhotoUrl = photoUrl;
+          this.displayPhoto.set(photoUrl);
           if (this.preview()) URL.revokeObjectURL(this.preview());
           this.preview.set(photoUrl);
+          this.removePhotoOnSave = false;
+          this.photoRemoved.set(false);
         } catch (photoErr: any) {
           try {
             const local = this.preview() || (await fileToDataUrl(this.photoFile));
             cachePetPhotoUrl(petId, local);
             photoUrl = local;
+            this.displayPhoto.set(local);
           } catch {
             /* ignore */
           }
@@ -1229,6 +1429,37 @@ export class PetFormComponent implements OnInit, OnDestroy {
           this.activePet.set(petId);
           return;
         }
+      } else if (this.removePhotoOnSave) {
+        try {
+          await this.api.deletePetPhoto(petId);
+          clearCachedPetPhotoUrl(petId);
+          photoUrl = '';
+          this.model.photoUrl = '';
+          this.existingPhotoUrl = '';
+          this.displayPhoto.set('');
+          this.photoRemoved.set(false);
+          this.removePhotoOnSave = false;
+        } catch (photoErr: any) {
+          clearCachedPetPhotoUrl(petId);
+          photoUrl = '';
+          this.model.photoUrl = '';
+          this.existingPhotoUrl = '';
+          this.displayPhoto.set('');
+          this.photoRemoved.set(false);
+          this.removePhotoOnSave = false;
+          const msg =
+            photoErr?.error?.message ||
+            photoErr?.message ||
+            'Photo could not be removed on the server';
+          if (!photoErr?.localCleared && !/route not found|missing/i.test(String(msg))) {
+            this.error.set(`Pet details saved, but photo could not be removed: ${msg}`);
+            this.activePet.set(petId);
+            return;
+          }
+          // API missing / local-only clear — continue navigation; photo gone on this device
+        }
+      } else {
+        photoUrl = this.displayPhoto() || this.existingPhotoUrl || photoUrl;
       }
 
       if (this.pendingDocs.length) {

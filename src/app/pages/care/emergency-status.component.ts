@@ -3,6 +3,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
+import { dedupeAddressText } from '../../utils/address';
 
 @Component({
   standalone: true,
@@ -18,16 +19,20 @@ import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
       <div class="vos-skel"></div>
     } @else if (case_(); as c) {
       <p class="ref">{{ c.displayId }}</p>
-      <div class="vos-badge status">{{ c.status }}</div>
-      @if (c.triageLevel) {
-        <span class="vos-badge triage">{{ c.triageLevel }}</span>
-      }
+      <div class="badges" role="list">
+        <span class="vos-badge status" role="listitem">{{ c.status }}</span>
+        @if (c.triageLevel) {
+          <span class="vos-badge triage" role="listitem">{{ c.triageLevel }}</span>
+        }
+      </div>
 
       <div class="vos-card">
         <p><strong>{{ c.petName | vosTitleCase:'Pet' }}</strong></p>
         <p>{{ c.category }}</p>
-        <p class="vos-muted">{{ c.reason }}</p>
-        @if (c.location) { <p><strong>Location</strong> {{ c.location }}</p> }
+        @if (c.reason) {
+          <p class="vos-muted">{{ c.reason }}</p>
+        }
+        @if (c.location) { <p><strong>Location</strong> {{ prettyLocation(c.location) }}</p> }
         @if (c.phone) { <p><strong>Phone</strong> {{ c.phone }}</p> }
         <p class="vos-muted">Reported {{ formatTime(c.createdAt) }}</p>
       </div>
@@ -48,18 +53,26 @@ import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
         }
       </div>
 
-      @if (c.bookingId) {
-        <a class="vos-btn" [routerLink]="['/bookings', c.bookingId, 'track']">Track care request</a>
-        <a class="vos-btn vos-btn-secondary" [routerLink]="['/bookings', c.bookingId]">Open booking</a>
-      }
-
-      <button type="button" class="vos-btn vos-btn-ghost" (click)="load()">Refresh</button>
+      <div class="actions">
+        @if (c.bookingId) {
+          <a class="vos-btn" [routerLink]="['/bookings', c.bookingId, 'track']">Track care request</a>
+          <a class="vos-btn vos-btn-secondary" [routerLink]="['/bookings', c.bookingId]">Open booking</a>
+        }
+        <button type="button" class="vos-btn vos-btn-ghost" (click)="load()">Refresh</button>
+      </div>
     }
   `,
   styles: [`
     h1 { font-family: var(--vos-display); margin: 4px 0 8px; }
-    .ref { margin: 0 0 8px; color: var(--vos-ink-muted); font-weight: 600; }
-    .status { background: #fdecec; color: var(--vos-danger); margin-right: 6px; }
+    .ref { margin: 0 0 12px; color: var(--vos-ink-muted); font-weight: 600; }
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 16px;
+    }
+    .status { background: #fdecec; color: var(--vos-danger); }
     .triage { background: #fff6e8; color: var(--vos-warning); }
     .label {
       margin: 0 0 8px; font-size: 12px; text-transform: uppercase;
@@ -67,7 +80,17 @@ import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
     }
     .vos-card p { margin: 8px 0; }
     .note { font-size: 0.88rem; margin-top: 12px !important; }
-    .vos-btn { margin-top: 8px; }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .actions .vos-btn {
+      margin: 0;
+      flex: 0 1 auto;
+    }
     .linkish {
       margin-left: 8px; background: none; border: 0; color: var(--vos-brand);
       font-weight: 700; cursor: pointer;
@@ -94,6 +117,10 @@ export class EmergencyStatusComponent implements OnInit {
     } catch {
       return v;
     }
+  }
+
+  prettyLocation(raw: unknown): string {
+    return dedupeAddressText(raw);
   }
 
   async load() {

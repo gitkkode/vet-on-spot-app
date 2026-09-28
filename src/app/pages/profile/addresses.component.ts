@@ -2,6 +2,7 @@ import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { dedupeAddressText } from '../../utils/address';
 
 @Component({
   standalone: true,
@@ -303,21 +304,7 @@ export class AddressesComponent implements OnInit {
 
   /** Collapse accidental repeated address segments for cleaner display. */
   prettyAddress(raw: unknown): string {
-    const text = String(raw || '').trim();
-    if (!text) return '—';
-    const parts = text
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean);
-    const seen = new Set<string>();
-    const unique: string[] = [];
-    for (const p of parts) {
-      const key = p.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      unique.push(p);
-    }
-    return unique.join(', ') || text;
+    return dedupeAddressText(raw) || '—';
   }
 
   async load() {
@@ -328,15 +315,19 @@ export class AddressesComponent implements OnInit {
         this.api.addresses().catch(() => []),
         this.api.me().catch(() => null),
       ]);
-      const list = Array.isArray(raw)
+      const list = (Array.isArray(raw)
         ? raw
         : Array.isArray((raw as any)?.addresses)
           ? (raw as any).addresses
           : Array.isArray((raw as any)?.items)
             ? (raw as any).items
-            : [];
+            : []
+      ).map((a: any) => ({
+        ...a,
+        address: dedupeAddressText(a?.address || ''),
+      }));
 
-      const profileAddr = String(me?.address || '').trim();
+      const profileAddr = dedupeAddressText(me?.address || '');
       const hasMatch =
         !!profileAddr &&
         list.some(
@@ -371,7 +362,7 @@ export class AddressesComponent implements OnInit {
     try {
       await this.api.createAddress({
         label: a.label || 'Home',
-        address: a.address,
+        address: dedupeAddressText(a.address),
         isDefault: true,
       });
       this.ok.set('Address added to your book.');
@@ -390,7 +381,7 @@ export class AddressesComponent implements OnInit {
     try {
       await this.api.createAddress({
         label: this.label || 'Home',
-        address: this.address,
+        address: dedupeAddressText(this.address),
         isDefault: this.isDefault,
       });
       this.ok.set('Saved');
