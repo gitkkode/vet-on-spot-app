@@ -4,7 +4,9 @@ import { Subscription, filter } from 'rxjs';
 import { CustomerApiService } from '../services/customer-api.service';
 import { ActivePetService } from '../services/active-pet.service';
 import { petInitial, titleCase } from '../utils/health-records';
+import { getCachedPetPhotoUrl, resolvePetPhotoUrl } from '../utils/pet-photo';
 import { VosBackButtonComponent } from './vos-back-button.component';
+import { VosPetAvatarComponent } from './vos-pet-avatar.component';
 
 export type HealthSectionId =
   | 'overview'
@@ -37,7 +39,7 @@ const TABS: { id: HealthSectionId; label: string; path: string }[] = [
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent],
+  imports: [RouterLink, VosBackButtonComponent, VosPetAvatarComponent],
   selector: 'vos-health-shell',
   template: `
     <vos-back-button
@@ -46,7 +48,9 @@ const TABS: { id: HealthSectionId; label: string; path: string }[] = [
     />
 
     <header class="head">
-      <span class="avatar" aria-hidden="true">{{ petInitial(petName()) }}</span>
+      <span class="avatar" aria-hidden="true">
+        <vos-pet-avatar [pet]="avatarPet()" [name]="petName()" />
+      </span>
       <div>
         <p class="kicker">Health record</p>
         <h1>{{ titleCase(petName()) || 'Pet' }}’s {{ sectionTitle }}</h1>
@@ -91,13 +95,16 @@ const TABS: { id: HealthSectionId; label: string; path: string }[] = [
     :host { display: block; }
     .head { display: flex; gap: 14px; align-items: flex-start; margin: 8px 0 14px; }
     .avatar {
+      position: relative;
       width: 48px; height: 48px; border-radius: 50%; flex: 0 0 auto;
       display: inline-flex; align-items: center; justify-content: center;
+      overflow: hidden;
       background: linear-gradient(145deg, #ffe8e1, #fff5f1);
       color: var(--vos-brand); font-family: var(--vos-display);
       font-size: 1.2rem; font-weight: 700;
       box-shadow: 0 0 0 3px rgba(253, 74, 41, 0.12);
     }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .kicker {
       margin: 0 0 4px; font-family: var(--vos-mono);
       font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
@@ -142,6 +149,7 @@ export class HealthShellComponent implements OnInit, OnChanges, OnDestroy {
 
   readonly pets = signal<any[]>([]);
   readonly petName = signal('');
+  readonly photoUrl = signal('');
   readonly resolvedId = signal('');
   readonly tabs = TABS;
   private sub?: Subscription;
@@ -189,6 +197,16 @@ export class HealthShellComponent implements OnInit, OnChanges, OnDestroy {
     this.applyPetId(id);
   }
 
+  clearPhoto() {
+    this.photoUrl.set('');
+  }
+
+  avatarPet(): any {
+    const id = this.currentId();
+    const pet = this.pets().find((p) => String(p?.id) === String(id));
+    return pet || { id, name: this.petName(), photoUrl: this.photoUrl() };
+  }
+
   private routePetId(): string {
     const path = this.router.url.split(/[?#]/)[0];
     const match = path.match(/^\/pets\/([^/]+)(?:\/|$)/);
@@ -203,7 +221,12 @@ export class HealthShellComponent implements OnInit, OnChanges, OnDestroy {
     this.resolvedId.set(next);
     const pet = this.pets().find((p) => String(p?.id) === next);
     if (pet?.name) this.petName.set(pet.name);
+    this.photoUrl.set(this.photoFor(next, pet));
     this.activePet.set(next);
+  }
+
+  private photoFor(id: string, pet?: any): string {
+    return resolvePetPhotoUrl(pet) || resolvePetPhotoUrl({ id }) || getCachedPetPhotoUrl(id);
   }
 
   private async loadPets() {
@@ -222,6 +245,7 @@ export class HealthShellComponent implements OnInit, OnChanges, OnDestroy {
       this.resolvedId.set(id);
       const pet = pets.find((p: any) => String(p.id) === String(id));
       this.petName.set(pet?.name || this.petName());
+      this.photoUrl.set(this.photoFor(id, pet));
       this.activePet.set(id);
     } catch {
       if (gen === this.loadGen) this.pets.set([]);

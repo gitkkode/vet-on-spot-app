@@ -20,6 +20,14 @@ import {
   MAX_PET_DOC_BYTES,
   normalizeDocCategory,
 } from '../../utils/pet-documents';
+import {
+  deleteLocalPetDocument,
+  getLocalPetDocument,
+  isLocalPetDocumentId,
+  listLocalPetDocuments,
+  saveLocalPetDocument,
+  updateLocalPetDocument,
+} from '../../utils/local-pet-documents';
 import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
 import { HealthShellComponent } from '../../shared/health-shell.component';
 import { HealthEmptyComponent } from '../../shared/health-empty.component';
@@ -46,7 +54,7 @@ import { HealthEmptyComponent } from '../../shared/health-empty.component';
     @if (petId) {
       <section class="upload-panel">
         <h2 class="sec">Upload a document <span class="opt">(optional)</span></h2>
-        <p class="upload-lede">Choose a category, then attach a file. Max {{ maxMb }} MB · PDF or image preferred.</p>
+        <p class="upload-lede">Choose a category, then attach a file. Max {{ maxMb }} MB · images, PDF, Word, Excel, or PowerPoint.</p>
         <div class="upload-row">
           <label class="field">
             Category
@@ -89,7 +97,7 @@ import { HealthEmptyComponent } from '../../shared/health-empty.component';
               <div class="vos-card item item--managed">
                 <button type="button" class="item__main" (click)="open(d)">
                   <strong>{{ d.fileName || prettyCat(d.category) }}</strong>
-                  <span class="vos-muted">{{ prettyCat(d.category) }} · {{ (d.createdAt || '').slice(0, 10) || '—' }}</span>
+                  <span class="vos-muted">{{ prettyCat(d.category) }} · {{ (d.createdAt || '').slice(0, 10) || '—' }}@if (d.local) { · On this device }</span>
                 </button>
                 <div class="item__acts">
                   <button type="button" class="act" (click)="open(d)">Open</button>
@@ -420,10 +428,14 @@ export class DocumentsComponent implements OnInit, OnDestroy {
     this.editError.set('');
     this.busyId.set(String(d.id));
     try {
-      await this.api.updatePetDocument(String(d.id), {
-        category: this.editCategory,
-        petId: this.petId,
-      });
+      if (d.local || isLocalPetDocumentId(d.id)) {
+        await updateLocalPetDocument(String(d.id), { category: this.editCategory });
+      } else {
+        await this.api.updatePetDocument(String(d.id), {
+          category: this.editCategory,
+          petId: this.petId,
+        });
+      }
       this.ok.set(`Updated category to ${categoryLabel(this.editCategory)}.`);
       this.editDoc.set(null);
       document.body.style.overflow = '';
@@ -469,19 +481,40 @@ export class DocumentsComponent implements OnInit, OnDestroy {
     this.uploading.set(true);
     this.error.set('');
     try {
-      await this.api.replacePetDocument(String(d.id), file, {
-        category: normalizeDocCategory(d.category),
-        petId: this.petId,
-      });
+      if (d.local || isLocalPetDocumentId(d.id)) {
+        await updateLocalPetDocument(String(d.id), {
+          file,
+          fileName: file.name,
+          mime: file.type || 'application/octet-stream',
+          category: normalizeDocCategory(d.category),
+        });
+      } else {
+        await this.api.replacePetDocument(String(d.id), file, {
+          category: normalizeDocCategory(d.category),
+          petId: this.petId,
+        });
+      }
       this.ok.set(`Replaced “${d.fileName || 'document'}” with “${file.name}”.`);
       await this.load();
     } catch (e: any) {
       const msg = String(e?.error?.message || e?.message || 'Replace failed');
-      this.error.set(
-        /route not found|missing/i.test(msg)
-          ? 'Document change API is missing on the server. See API_README.md.'
-          : msg,
-      );
+      if (/only images, pdf|office documents are allowed/i.test(msg) && this.petId) {
+        await saveLocalPetDocument({
+          petId: this.petId,
+          file,
+          fileName: file.name,
+          mime: file.type || 'application/octet-stream',
+          category: normalizeDocCategory(d.category),
+        });
+        this.ok.set(`Added “${file.name}” on this device. The server is still rejecting this file type.`);
+        await this.load();
+      } else {
+        this.error.set(
+          /route not found|missing/i.test(msg)
+            ? 'Document change API is missing on the server. See API_README.md.'
+            : msg,
+        );
+      }
     } finally {
       this.uploading.set(false);
       this.busyId.set('');
@@ -511,7 +544,11 @@ export class DocumentsComponent implements OnInit, OnDestroy {
     this.busyId.set(String(d.id));
     this.editError.set('');
     try {
-      await this.api.deletePetDocument(String(d.id), this.petId);
+      if (d.local || isLocalPetDocumentId(d.id)) {
+        await deleteLocalPetDocument(String(d.id));
+      } else {
+        await this.api.deletePetDocument(String(d.id), this.petId);
+      }
       this.ok.set(`Removed “${d.fileName || 'document'}”.`);
       this.removeDoc.set(null);
       document.body.style.overflow = '';
@@ -546,8 +583,12 @@ export class DocumentsComponent implements OnInit, OnDestroy {
     }
     this.uploading.set(true);
     try {
-      await this.api.uploadPetDocument(this.petId, file, this.uploadCategory);
-      this.ok.set(`Uploaded “${file.name}” to ${categoryLabel(this.uploadCategory)}.`);
+      const saved = await this.api.uploadPetDocument(this.petId, file, this.uploadCategory);
+      this.ok.set(
+        saved?.['stored'] === 'device'
+          ? `Added “${file.name}” to ${categoryLabel(this.uploadCategory)}. The server rejected this file type, so it is kept in this browser.`
+          : `Uploaded “${file.name}” to ${categoryLabel(this.uploadCategory)}.`,
+      );
       await this.load();
     } catch (e: any) {
       const msg = String(e?.error?.message || e?.message || 'Upload failed');
@@ -584,11 +625,27 @@ export class DocumentsComponent implements OnInit, OnDestroy {
       ]);
       if (!name && timeline?.pet?.name) this.petName.set(timeline.pet.name);
 
+      const local = id ? await listLocalPetDocuments(id).catch(() => []) : [];
       const uploaded = (files || []).map((d: any) => ({
         ...d,
         category: normalizeDocCategory(d?.category || d?.type),
         fileName: d?.fileName || d?.name || d?.originalName || 'Document',
       }));
+      const serverNames = new Set(
+        uploaded.map((d: any) => `${d.category}|${String(d.fileName || '').toLowerCase()}`),
+      );
+      for (const row of local) {
+        const key = `${normalizeDocCategory(row.category)}|${row.fileName.toLowerCase()}`;
+        if (serverNames.has(key)) continue;
+        uploaded.push({
+          id: row.id,
+          petId: row.petId,
+          category: normalizeDocCategory(row.category),
+          fileName: row.fileName,
+          createdAt: row.createdAt,
+          local: true,
+        });
+      }
       const derived = id ? documentsFromTimeline(timeline, this.petName()) : [];
       const merged = [...uploaded];
       for (const d of derived) {
@@ -617,6 +674,21 @@ export class DocumentsComponent implements OnInit, OnDestroy {
   async open(d: any) {
     const id = String(d?.id || '');
     if (!id || id.startsWith('visit-doc-') || id.startsWith('rx-doc-')) return;
+    if (d.local || isLocalPetDocumentId(id)) {
+      try {
+        const row = await getLocalPetDocument(id);
+        if (!row?.blob) {
+          this.error.set('This file is no longer saved in this browser.');
+          return;
+        }
+        const url = URL.createObjectURL(row.blob);
+        window.open(url, '_blank', 'noopener');
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } catch (e: any) {
+        this.error.set(e?.message || 'Unable to open file');
+      }
+      return;
+    }
     try {
       const res = await firstValueFrom(
         this.http.get<{ success: boolean; data: { url: string } }>(

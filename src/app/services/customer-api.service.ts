@@ -3,6 +3,7 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { normalizePetRecord, normalizePetsList, resolvePetPhotoUrl, unwrapPetPayload, cachePetPhotoUrl, clearCachedPetPhotoUrl, fileToDataUrl, getCachedPetPhotoUrl } from '../utils/pet-photo';
+import { saveLocalPetDocument } from '../utils/local-pet-documents';
 
 @Injectable({ providedIn: 'root' })
 export class CustomerApiService {
@@ -704,8 +705,9 @@ export class CustomerApiService {
 
   /**
    * Upload a customer-owned document for a pet.
-   * Prefers pet-scoped multipart routes; avoids sending category as `type`
-   * (that field is often interpreted as MIME and causes false 422s on PDFs).
+   * `type` is the file MIME (application/pdf, …). Category stays in `category`.
+   * Sending the category in `type` / `documentType` makes the API answer
+   * "Only images, PDF, or common office documents are allowed" for valid PDFs.
    */
   async uploadPetDocument(
     petId: string,
@@ -716,28 +718,21 @@ export class CustomerApiService {
     if (!id) throw new Error('Missing pet id for document upload');
     if (!file) throw new Error('Missing document file');
     const cat = String(category || 'other').trim() || 'other';
-    const uploadFile = this.ensureDocumentMime(file);
+    const prepared = await this.prepareDocumentFile(file);
     const encoded = encodeURIComponent(id);
     const petBase = `${this.base}/customers/me/pets/${encoded}`;
     const paths: Array<{ url: string; includePetIdField: boolean }> = [
       { url: `${petBase}/documents`, includePetIdField: false },
-      { url: `${petBase}/files`, includePetIdField: false },
       { url: `${this.base}/customers/me/documents`, includePetIdField: true },
       { url: `${this.base}/customers/me/documents/upload`, includePetIdField: true },
-      { url: `${this.base}/customers/me/files`, includePetIdField: true },
-      { url: `${petBase}/upload`, includePetIdField: false },
     ];
-    // Prefer `file` first — matches API_README preferred contract
-    const fields = ['file', 'document', 'attachment', 'upload', 'files'];
     let lastErr: any = null;
-    let sawMimeReject = false;
 
     for (const path of paths) {
-      let pathHadResponse = false;
-      for (const field of fields) {
-        try {
-          const fd = new FormData();
-          fd.append(field, uploadFile, uploadFile.name || 'document.pdf');
+      try {
+        const fd = new FormData();
+        fd.append('file', prepared.file, prepared.file.name || 'document');
+        if (prepared.mime.startsWith('image/')) {
           fd.append('category', cat);
           fd.append('documentCategory', cat);
           fd.append('documentType', cat);
@@ -746,87 +741,155 @@ export class CustomerApiService {
             fd.append('petId', id);
             fd.append('pet_id', id);
           }
-          const res = await firstValueFrom(this.http.post<any>(path.url, fd));
-          pathHadResponse = true;
-          if (res && typeof res === 'object' && res.success === false) {
-            lastErr = res;
-            const msg = String(res.message || '').toLowerCase();
-            if (/route not found|not found|method/.test(msg)) break;
-            if (this.isMimeRejectMessage(msg)) {
-              sawMimeReject = true;
-              // Wrong field may omit the binary; try next field name on this path
-              continue;
-            }
-            continue;
-          }
-          const data = res?.data !== undefined ? res.data : res;
-          const doc = Array.isArray(data)
-            ? data[0]
-            : data?.document || data?.file || data?.item || data;
-          return {
-            ...(doc && typeof doc === 'object' ? doc : {}),
-            id: doc?.id || data?.id,
-            petId: id,
-            category: cat,
-            fileName: doc?.fileName || doc?.name || uploadFile.name,
-          };
-        } catch (e: any) {
-          lastErr = e;
-          if (e?.status === 401 || e?.status === 403) throw e;
-          if (this.isMissingRouteError(e)) break;
-          pathHadResponse = true;
-          const msg = String(e?.error?.message || e?.message || '').toLowerCase();
-          if (this.isMimeRejectMessage(msg)) {
-            sawMimeReject = true;
-            continue;
-          }
-          if ([400, 415, 422].includes(e?.status)) continue;
-          break;
+        } else {
+          this.appendDocumentMeta(fd, prepared.mime, cat, path.includePetIdField ? id : '');
         }
-      }
-      // If this path answered with MIME reject for every field, keep trying other
-      // routes once — some aliases are photo-only (/files) while /documents accepts PDF.
-      if (sawMimeReject && pathHadResponse) {
-        // continue to next path
+        const res = await firstValueFrom(this.http.post<any>(path.url, fd));
+        if (res && typeof res === 'object' && res.success === false) {
+          lastErr = res;
+          const msg = this.apiErrorText(res);
+          if (this.isMissingRouteError({ error: res, status: 404 })) continue;
+          if (this.isMimeRejectMessage(msg)) {
+            return this.keepRejectedDocument(id, prepared.file, prepared.mime, cat);
+          }
+          continue;
+        }
+        return { ...this.asUploadedDocument(res, id, cat, prepared.file.name), stored: 'server' as const };
+      } catch (e: any) {
+        lastErr = e;
+        if (e?.status === 401 || e?.status === 403) throw e;
+        if (e?.status === 413 || e?.status === 0) break;
+        if (this.isMissingRouteError(e)) continue;
+        const msg = this.apiErrorText(e);
+        if (this.isMimeRejectMessage(msg)) {
+          return this.keepRejectedDocument(id, prepared.file, prepared.mime, cat);
+        }
+        if ([400, 415, 422].includes(e?.status)) break;
+        break;
       }
     }
 
-    const msg =
-      lastErr?.error?.message ||
-      lastErr?.message ||
-      'Document upload failed — the documents API may be missing on the server';
-    throw Object.assign(new Error(String(msg)), {
-      error: lastErr?.error || lastErr,
-      status: lastErr?.status,
+    throw this.documentUploadError(lastErr);
+  }
+
+  private async keepRejectedDocument(petId: string, file: File, mime: string, category: string) {
+    const saved = await saveLocalPetDocument({
+      petId,
+      file,
+      fileName: file.name,
+      mime,
+      category,
+    });
+    return {
+      id: saved.id,
+      petId,
+      category,
+      fileName: saved.fileName,
+      createdAt: saved.createdAt,
+      local: true as const,
+      stored: 'device' as const,
+    };
+  }
+
+  private apiErrorText(value: any): string {
+    const body = value?.error ?? value;
+    if (typeof body === 'string') return body;
+    const message = body?.message ?? value?.message;
+    if (Array.isArray(message)) return message.join(' ');
+    return String(message || '');
+  }
+
+  /** Stamp a real MIME from the extension. Windows often labels PDFs as empty or octet-stream. */
+  private async prepareDocumentFile(file: File): Promise<{ file: File; mime: string }> {
+    const name = String(file.name || 'document').trim() || 'document';
+    const fromName = this.mimeFromDocumentName(name);
+    const existing = String(file.type || '').toLowerCase().split(';')[0].trim();
+    const mime =
+      fromName ||
+      (existing && existing !== 'application/octet-stream' ? existing : 'application/octet-stream');
+    if (existing === mime) return { file, mime };
+    try {
+      const bytes = await file.arrayBuffer();
+      return {
+        file: new File([bytes], name, { type: mime, lastModified: file.lastModified }),
+        mime,
+      };
+    } catch {
+      return { file, mime };
+    }
+  }
+
+  private mimeFromDocumentName(name: string): string {
+    const lower = name.toLowerCase();
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    if (/\.jpe?g$/.test(lower)) return 'image/jpeg';
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.bmp')) return 'image/bmp';
+    if (lower.endsWith('.doc')) return 'application/msword';
+    if (lower.endsWith('.docx')) {
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    if (lower.endsWith('.xls')) return 'application/vnd.ms-excel';
+    if (lower.endsWith('.xlsx')) {
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    }
+    if (lower.endsWith('.ppt')) return 'application/vnd.ms-powerpoint';
+    if (lower.endsWith('.pptx')) {
+      return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    }
+    if (lower.endsWith('.csv')) return 'text/csv';
+    if (lower.endsWith('.txt')) return 'text/plain';
+    if (lower.endsWith('.rtf')) return 'application/rtf';
+    if (lower.endsWith('.odt')) return 'application/vnd.oasis.opendocument.text';
+    return '';
+  }
+
+  /** Category and MIME go in different fields. `type` must be the MIME, never `id` or `photos`. */
+  private appendDocumentMeta(fd: FormData, mime: string, category: string, petId = '') {
+    fd.append('category', category);
+    fd.append('documentCategory', category);
+    fd.append('type', mime);
+    fd.append('mimeType', mime);
+    fd.append('contentType', mime);
+    if (petId) {
+      fd.append('petId', petId);
+      fd.append('pet_id', petId);
+    }
+  }
+
+  private asUploadedDocument(res: any, petId: string, category: string, fileName: string) {
+    const data = res?.data !== undefined ? res.data : res;
+    const doc = Array.isArray(data) ? data[0] : data?.document || data?.file || data?.item || data;
+    return {
+      ...(doc && typeof doc === 'object' ? doc : {}),
+      id: doc?.id || data?.id,
+      petId,
+      category,
+      fileName: doc?.fileName || doc?.name || fileName,
+    };
+  }
+
+  private documentUploadError(lastErr: any): Error {
+    const status = Number(lastErr?.status || 0);
+    const raw = String(lastErr?.error?.message || lastErr?.message || '');
+    let message = raw;
+    if (status === 413 || /content too large|entity too large|payload too large/i.test(raw)) {
+      message = 'This file is too large for the server. Choose a smaller PDF, Word file, or a photo of the document.';
+    } else if (status === 0 || /failed to fetch|unknown error/i.test(raw)) {
+      message = 'The upload did not reach the server. Choose a smaller file and try again.';
+    } else if (!message) {
+      message = 'Document upload failed — the documents API may be missing on the server';
+    }
+    return Object.assign(new Error(message), {
+      error: { message },
+      status,
     });
   }
 
-  /** Ensure browser File has a MIME type (Windows often leaves PDF type empty). */
-  private ensureDocumentMime(file: File): File {
-    const existing = String(file.type || '').toLowerCase().trim();
-    if (existing && existing !== 'application/octet-stream') return file;
-    const name = String(file.name || '').toLowerCase();
-    let mime = existing || '';
-    if (name.endsWith('.pdf')) mime = 'application/pdf';
-    else if (/\.jpe?g$/.test(name)) mime = 'image/jpeg';
-    else if (name.endsWith('.png')) mime = 'image/png';
-    else if (name.endsWith('.webp')) mime = 'image/webp';
-    else if (name.endsWith('.gif')) mime = 'image/gif';
-    else if (name.endsWith('.bmp')) mime = 'image/bmp';
-    else if (name.endsWith('.doc')) mime = 'application/msword';
-    else if (name.endsWith('.docx')) {
-      mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-    } else if (name.endsWith('.txt')) mime = 'text/plain';
-    if (!mime || mime === existing) return file;
-    try {
-      return new File([file], file.name, { type: mime, lastModified: file.lastModified });
-    } catch {
-      return file;
-    }
-  }
-
   private isMimeRejectMessage(msg: string): boolean {
-    return /only images|pdf|office documents? are allowed|unsupported (file )?type|invalid file|mime/i.test(
+    return /only images, pdf|office documents? are allowed|unsupported (file )?type|invalid (file|mime)|mime type/i.test(
       msg,
     );
   }
@@ -932,7 +995,7 @@ export class CustomerApiService {
     if (!file) throw new Error('Missing document file');
     const cat = String(opts?.category || '').trim();
     const petId = String(opts?.petId || '').trim();
-    const uploadFile = this.ensureDocumentMime(file);
+    const prepared = await this.prepareDocumentFile(file);
 
     const paths = [
       `${this.base}/customers/me/documents/${encodeURIComponent(id)}`,
@@ -949,15 +1012,8 @@ export class CustomerApiService {
       for (const method of ['put', 'post', 'patch'] as const) {
         try {
           const fd = new FormData();
-          fd.append('file', uploadFile, uploadFile.name || 'document.pdf');
-          if (cat) {
-            fd.append('category', cat);
-            fd.append('documentCategory', cat);
-          }
-          if (petId) {
-            fd.append('petId', petId);
-            fd.append('pet_id', petId);
-          }
+          fd.append('file', prepared.file, prepared.file.name || 'document');
+          this.appendDocumentMeta(fd, prepared.mime, cat || 'other', petId);
           const res =
             method === 'put'
               ? await firstValueFrom(this.http.put<any>(path, fd))
@@ -1133,9 +1189,57 @@ export class CustomerApiService {
       firstValueFrom(this.http.get<any>(`${this.base}/customers/me/pets/${petId}/caregivers`)),
     ).then((d) => this.listOf(d, ['caregivers', 'items', 'data']));
   }
-  inviteCaregiver(petId: string, body: Record<string, unknown>) {
-    return this.data(
-      firstValueFrom(this.http.post<any>(`${this.base}/customers/me/pets/${petId}/caregivers`, body)),
+  /**
+   * Save a caregiver invite and ask the API to email it.
+   * Pass `caregiverId` to resend an invite that is already saved.
+   * `emailSent` is true only when the response explicitly confirms delivery.
+   */
+  async inviteCaregiver(
+    petId: string,
+    body: Record<string, unknown>,
+  ): Promise<{ record: any; emailSent: boolean }> {
+    const existingId = String(body['caregiverId'] || '').trim();
+    let record: any = null;
+    if (!existingId) {
+      record = await this.data(
+        firstValueFrom(this.http.post<any>(`${this.base}/customers/me/pets/${petId}/caregivers`, body)),
+      );
+    }
+    const id = String(record?.id || record?.caregiverId || existingId).trim();
+    if (this.caregiverMailConfirmed(record)) return { record, emailSent: true };
+
+    const payload = { ...body, ...(id ? { caregiverId: id } : {}), sendEmail: true, notify: true };
+    const paths = [
+      id ? `${this.base}/customers/me/pets/${petId}/caregivers/${encodeURIComponent(id)}/resend` : '',
+      id ? `${this.base}/customers/me/pets/${petId}/caregivers/${encodeURIComponent(id)}/send` : '',
+      `${this.base}/customers/me/pets/${petId}/caregivers/invite`,
+    ].filter(Boolean);
+
+    for (const path of paths) {
+      try {
+        const res = await firstValueFrom(this.http.post<any>(path, payload));
+        const data = this.unwrapApiResult(res);
+        if (this.caregiverMailConfirmed(data) || this.caregiverMailConfirmed(res)) {
+          return { record: record || data, emailSent: true };
+        }
+      } catch (e: any) {
+        if (e?.status === 401 || e?.status === 403) throw e;
+      }
+    }
+    return { record, emailSent: false };
+  }
+
+  private caregiverMailConfirmed(value: any): boolean {
+    const blobs = [value, value?.caregiver, value?.invite, value?.invitation, value?.data].filter(
+      (b) => b && typeof b === 'object',
+    );
+    return blobs.some(
+      (b) =>
+        b.emailSent === true ||
+        b.inviteSent === true ||
+        b.notified === true ||
+        b.mailSent === true ||
+        b.email?.sent === true,
     );
   }
   revokeCaregiver(petId: string, id: string) {

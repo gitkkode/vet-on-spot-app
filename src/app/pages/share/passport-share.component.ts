@@ -3,6 +3,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
+import { VosPetAvatarComponent } from '../../shared/vos-pet-avatar.component';
 import { petInitial } from '../../utils/health-records';
 import { readShareCache, shareIsClosed } from '../../utils/passport-share';
 
@@ -10,7 +11,7 @@ type ViewState = 'loading' | 'active' | 'closed' | 'error';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosTitleCasePipe],
+  imports: [RouterLink, VosTitleCasePipe, VosPetAvatarComponent],
   selector: 'app-passport-share',
   template: `
     <div class="page">
@@ -46,11 +47,7 @@ type ViewState = 'loading' | 'active' | 'closed' | 'error';
             </header>
             <div class="pass__body">
               <div class="pass__avatar" aria-hidden="true">
-                @if (d.pet?.photoUrl) {
-                  <img [src]="d.pet.photoUrl" alt="" />
-                } @else {
-                  {{ petInitial(d.pet?.name) }}
-                }
+                <vos-pet-avatar [pet]="d.pet" tone="inverse" />
               </div>
               <div>
                 <p class="pass__species">{{ d.pet?.species | vosTitleCase:'Pet' }} · {{ d.pet?.breed | vosTitleCase:'Mixed' }}</p>
@@ -208,6 +205,7 @@ type ViewState = 'loading' | 'active' | 'closed' | 'error';
     .pass em { display: block; margin-top: 4px; font-style: normal; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
     .pass__chip { border: 1px solid rgba(255,255,255,0.25); border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 700; }
     .pass__avatar {
+      position: relative;
       width: 84px; height: 84px; border-radius: 50%; overflow: hidden; flex: 0 0 auto;
       display: flex; align-items: center; justify-content: center;
       background: rgba(255,255,255,0.12); font-size: 1.8rem; font-weight: 700;
