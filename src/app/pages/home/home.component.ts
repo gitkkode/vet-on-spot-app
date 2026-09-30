@@ -6,10 +6,11 @@ import { BookingGateService } from '../../services/booking-gate.service';
 import { filterUpcomingBookings, normalizeBookingsList, bookingBlocksPet } from '../../utils/booking-pending';
 import { normalizePetRecord, normalizePetsList, resolvePetPhotoUrl } from '../../utils/pet-photo';
 import { displayPetName } from '../../utils/health-records';
+import { VosPetAvatarComponent } from '../../shared/vos-pet-avatar.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, VosPetAvatarComponent],
   selector: 'app-home',
   template: `
     <div class="vos-page home">
@@ -131,11 +132,7 @@ import { displayPetName } from '../../utils/health-records';
                     (click)="selectPet(p.id)"
                   >
                     <span class="pet-chip__avatar">
-                      @if (showPetPhoto(p)) {
-                        <img [src]="petPhotoUrl(p)" alt="" (error)="onPetPhotoError(p.id)" />
-                      } @else {
-                        <span class="ph">{{ petInitial(p.name) }}</span>
-                      }
+                      <vos-pet-avatar [pet]="p" />
                     </span>
                     <span class="pet-chip__name">{{ displayPetName(p.name) }}</span>
                   </button>
@@ -867,6 +864,7 @@ import { displayPetName } from '../../utils/health-records';
     }
     .pet-chip:hover { transform: translateY(-2px); }
     .pet-chip__avatar {
+      position: relative;
       width: 52px; height: 52px;
       border-radius: 50%;
       border: 2.5px solid transparent;
@@ -890,6 +888,15 @@ import { displayPetName } from '../../utils/health-records';
       text-overflow: ellipsis;
     }
     .pet-chip.on .pet-chip__name { color: var(--vos-ink); }
+    .pet-chip__avatar.is-buffer {
+      background: linear-gradient(100deg, #f3efe6 20%, #fff 42%, #f3efe6 64%);
+      background-size: 220% 100%;
+      animation: pet-photo-shimmer 1.15s ease-in-out infinite;
+    }
+    @keyframes pet-photo-shimmer {
+      0% { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
     .pet-chip__avatar img {
       width: 100%; height: 100%;
       object-fit: cover;
@@ -904,6 +911,9 @@ import { displayPetName } from '../../utils/health-records';
       text-transform: uppercase;
       color: #FD4A29;
       background: var(--vos-brand-soft);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pet-chip__avatar.is-buffer { animation: none; }
     }
     .pet-add {
       width: 64px;
@@ -1367,6 +1377,9 @@ export class HomeComponent implements OnInit, AfterViewChecked {
   readonly health = signal<any>(null);
   readonly careNext = signal<any>(null);
   readonly brokenPhotos = signal<Set<string>>(new Set());
+  readonly petPhotosReady = signal(true);
+  private photoBatchKey = '';
+  private photoLoadGen = 0;
   readonly petsOverflow = signal(false);
   readonly canScrollPetsLeft = signal(false);
   readonly canScrollPetsRight = signal(false);
@@ -1415,6 +1428,10 @@ export class HomeComponent implements OnInit, AfterViewChecked {
   petInitial(name: string | null | undefined): string {
     const n = String(name || '?').trim();
     return (n.charAt(0) || '?').toUpperCase();
+  }
+
+  photoPending(p: { id?: string; photoUrl?: string | null } | null | undefined): boolean {
+    return this.showPetPhoto(p) && !this.petPhotosReady();
   }
 
   showPetPhoto(p: { id?: string; photoUrl?: string | null } | null | undefined): boolean {
@@ -1867,6 +1884,41 @@ export class HomeComponent implements OnInit, AfterViewChecked {
     }
   }
 
+  private async preloadPetPhotos(pets: any[]) {
+    const batch = (pets || [])
+      .map((p) => ({ id: String(p?.id || ''), url: resolvePetPhotoUrl(p) }))
+      .filter((p) => p.id && p.url);
+    const key = batch.map((p) => `${p.id}:${p.url}`).join('|');
+    if (key === this.photoBatchKey && this.petPhotosReady()) return;
+    this.photoBatchKey = key;
+    const gen = ++this.photoLoadGen;
+    if (!batch.length) {
+      this.petPhotosReady.set(true);
+      return;
+    }
+    this.petPhotosReady.set(false);
+    await Promise.all(batch.map((p) => this.decodePetPhoto(p.url)));
+    if (gen !== this.photoLoadGen) return;
+    this.petPhotosReady.set(true);
+  }
+
+  private decodePetPhoto(url: string): Promise<void> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(finish, 5000);
+      img.onload = () => finish();
+      img.onerror = () => finish();
+      img.src = url;
+    });
+  }
+
   async selectPet(id: string) {
     this.activePet.set(id);
     await this.load(id);
@@ -1897,6 +1949,7 @@ export class HomeComponent implements OnInit, AfterViewChecked {
       });
       this.brokenPhotos.set(new Set());
       this.petsOverflowDirty = true;
+      void this.preloadPetPhotos(pets);
       // Sync Book CTAs from full bookings list — never clear blocks when home
       // upcoming is empty/mismatched (that was re-enabling Book incorrectly).
       void this.bookingGate.refresh().then(() => {

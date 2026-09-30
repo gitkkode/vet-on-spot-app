@@ -22,7 +22,10 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
     <div class="top-nav">
       <vos-back-button [fallback]="'/pets'" fallbackLabel="Pets" />
       @if (!isEdit && stage() === 2) {
-        <button type="button" class="back back--step" (click)="goToStep1()">← Step 1</button>
+        <button type="button" class="step-back" (click)="goToStep1()">
+          <span class="step-back__chev" aria-hidden="true">‹</span>
+          Step 1
+        </button>
       }
     </div>
 
@@ -322,17 +325,33 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
   `,
   styles: [`
     .top-nav {
-      display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
-      margin-bottom: 10px;
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 16px;
     }
-    .back {
-      display: inline-block;
-      font-weight: 700; color: var(--vos-brand); text-decoration: none;
-      background: none; border: 0; padding: 0; cursor: pointer;
-      font-family: inherit; font-size: inherit;
+    :host ::ng-deep .top-nav .vos-back { margin-bottom: 0; }
+    .step-back {
+      display: inline-flex; align-items: center; gap: 8px;
+      min-height: 40px; margin: 0; padding: 0 14px 0 8px;
+      border-radius: 999px;
+      border: 1px solid var(--vos-border);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 4px 14px rgba(10, 10, 10, 0.04);
+      color: var(--vos-ink);
+      font-weight: 700; font-size: 0.92rem; letter-spacing: -0.01em;
+      font-family: inherit; cursor: pointer;
     }
-    .back--step { color: var(--vos-ink-muted); }
-    .back--step:hover { color: var(--vos-brand); }
+    .step-back:hover {
+      background: #fff;
+      border-color: rgba(253, 74, 41, 0.28);
+    }
+    .step-back__chev {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 24px; height: 24px; border-radius: 50%;
+      background: linear-gradient(145deg, #fff 0%, var(--vos-brand-soft) 100%);
+      border: 1px solid rgba(253, 74, 41, 0.18);
+      color: var(--vos-brand);
+      font-size: 15px; line-height: 1; font-weight: 800;
+    }
     .head { margin-bottom: 18px; }
     .kicker {
       margin: 0 0 6px;

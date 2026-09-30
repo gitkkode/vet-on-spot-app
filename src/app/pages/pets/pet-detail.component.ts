@@ -6,10 +6,11 @@ import { BookingGateService } from '../../services/booking-gate.service';
 import { resolvePetPhotoUrl, cachePetPhotoUrl } from '../../utils/pet-photo';
 import { petInitial, titleCase } from '../../utils/health-records';
 import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosPetAvatarComponent } from '../../shared/vos-pet-avatar.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent],
+  imports: [RouterLink, VosBackButtonComponent, VosPetAvatarComponent],
   selector: 'app-pet-detail',
   template: `
     <vos-back-button [fallback]="'/pets'" fallbackLabel="Pets" />
@@ -22,11 +23,7 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
       <header class="hero">
         <div class="hero__glow" aria-hidden="true"></div>
         <div class="portrait">
-          @if (petPhotoUrl(p)) {
-            <img [src]="petPhotoUrl(p)" [alt]="displayName(p.name) || 'Pet'" (error)="onPhotoError()" />
-          } @else {
-            <span>{{ petInitial(p.name) }}</span>
-          }
+          <vos-pet-avatar [pet]="p" />
         </div>
         <h1>{{ displayName(p.name) || 'Your pet' }}</h1>
         <p class="hero__meta">{{ line(p) }}</p>
@@ -157,6 +154,7 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
       right: -50px; top: -60px; background: rgba(255,255,255,0.12); pointer-events: none;
     }
     .portrait {
+      position: relative;
       width: 104px; height: 104px; border-radius: 50%;
       margin: 0 auto 14px; overflow: hidden;
       background: rgba(255,255,255,0.18);

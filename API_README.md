@@ -20,7 +20,7 @@ These flows are wired in the app but **do not have working backend routes today*
 | 4 | `POST` | `/customers/me/bookings/:bookingId/reschedule` | Preferred alternate for modify | **Missing** |
 | 5 | `POST` | `/customers/me/pets/:petId/photo` | Pet profile photo upload | **Broken / not persisting** (portal cannot show photos after save) |
 | 5b | `DELETE` | `/customers/me/pets/:petId/photo` | Remove profile photo (Edit pet → Remove) | **Missing** — portal falls back to PATCH clear + device cache clear |
-| 6 | `POST` | `/customers/me/pets/:petId/documents` | Pet document upload (ID, reports, photos…) | **Missing / 422 on aliases** — PDF uploads hit `…/files` & `…/documents/upload` with misleading MIME error |
+| 6 | `POST` | `/customers/me/pets/:petId/documents` | Pet document upload (ID, reports, photos…) | **Route exists and returns 422 for PDF, Word, Excel, and PowerPoint** — the same call accepts images. Validator must allow the MIME list in §5a. Until it returns 201, the portal keeps the file in this browser only |
 | 6b | `PATCH` | `/customers/me/documents/:documentId` | Edit document (category) | **Missing** — Documents → Edit |
 | 6c | `PUT` | `/customers/me/documents/:documentId` | Change / replace document file | **Missing** — Documents → Change |
 | 6d | `DELETE` | `/customers/me/documents/:documentId` | Remove document | **Missing** — Documents → Remove |
@@ -29,8 +29,10 @@ These flows are wired in the app but **do not have working backend routes today*
 | 9 | `PATCH` | `/customers/me/medications/:medicationId` | Medications → Edit / Stop schedule | **Missing** — list + create + dose log exist; edit and stop do not |
 | 10 | `GET` | `/public/passport-shares/:token` | Open a passport share link (no login) | **Missing on API** — portal route `/share/passport/:token` is live and calls this GET; until it exists, another device cannot load the record |
 | 10b | `POST` | `/customers/me/passport-shares/:shareId/revoke` | Passport → Revoke access | **Must persist** — after revoke, `GET` the public link returns 410 **Access revoked or expired** |
+| 11 | `POST` | `/customers/me/pets/:petId/caregivers` | Passport → Invite caregiver | **Saves the row (`status: invited`) but does not send email** — must deliver the message and return `emailSent: true` |
+| 11b | `POST` | `/customers/me/pets/:petId/caregivers/:caregiverId/resend` | Passport → Send email on an existing invite | **Missing** — same delivery contract as §11 |
 
-Once these exist, cancel / modify / remove pet / profile photos / documents (upload + edit/change/remove) / weight sync / support replies / medication edit and stop / passport share open and revoke will complete as real API mutations.
+Once these exist, cancel / modify / remove pet / profile photos / documents (upload + edit/change/remove) / weight sync / support replies / medication edit and stop / passport share open and revoke / caregiver invite email will complete as real API mutations.
 
 ---
 
@@ -202,7 +204,7 @@ Content-Type: application/json
 
 ## 4. Pet profile photo upload + read-back
 
-> **Portal symptom:** Customer crops/selects a photo on Edit pet → Save → photo does not appear on Home, Pets list, Pet detail, or Book wizard. Frontend now retries several field/path variants and keeps a device-local cache so the UI is not blank, but **cross-device / durable photos require this API**.
+> **Portal symptom:** Customer crops/selects a photo on Edit pet → Save → photo does not appear on Home, Pets list, Pet detail, Book wizard, or any Pet Health section (the round avatar beside “{Name}'s Documents”, Overview, Passport, and the rest). Those screens read `photoUrl` from `GET /customers/me/pets` (and the device cache when GET omits it). Frontend retries several upload paths, but **cross-device / durable photos require this API**.
 
 ### Preferred
 
@@ -331,7 +333,7 @@ curl "$API/customers/me/home" -H "Authorization: Bearer $TOKEN"
 Portal smoke:
 
 1. Edit pet → crop photo → **Save changes**.
-2. Open pet detail, Home, Pets list, Book step 1 — avatar shows the same photo after refresh.
+2. Open pet detail, Home, Pets list, Book step 1, and any Pet Health section (Overview, Documents, Passport, …) — the round avatar shows the same photo after refresh.
 3. Open on another browser/device — photo still present (proves server persistence, not only local cache).
 
 ---
@@ -362,24 +364,48 @@ category: id | photos | past_reports | vaccination | prescription | clinical | o
 
 Field name for binary: prefer **`file`**. Aliases tried: `document`, `attachment`, `upload`, `files`.
 
-Category fields sent: `category`, `documentCategory`, `documentType`, `kind`.  
-**Do not** treat multipart field `type` as category — portal no longer sends it (servers that expect MIME there returned `422 Only images, PDF…` for valid PDFs when `type=id`).
+Category fields sent: `category`, `documentCategory`.  
+MIME fields sent: `type`, `mimeType`, `contentType` — these are the file type (`application/pdf`, `application/msword`, …), **never** the category id.  
+Sending `type=id` or `documentType=id` makes production answer `422 Only images, PDF, or common office documents are allowed` for a valid PDF, while images still upload.
 
-### Known production symptom (2026-09)
+Send the original file as multipart only. A base64 JSON body (`fileBase64` / `data`) is larger than the gateway limit and comes back as `413 Content Too Large` with no CORS header, which the browser shows as `Failed to fetch`.
 
-Uploading `Receipt-….pdf` from Edit pet failed with:
+### Known production symptom (confirmed 2026-09-30)
+
+`POST /customers/me/pets/:petId/documents` **is implemented** and accepts images. The same request with a PDF, Word, Excel, or PowerPoint file returns:
 
 `422 Unprocessable Content` — `Only images, PDF, or common office documents are allowed`
 
-Observed on `POST …/customers/me/files` and `POST …/customers/me/documents/upload` while preferred `POST …/pets/:petId/documents` may still be missing.
+The portal sends the real file MIME on the file part (`Content-Type: application/pdf`, and `type` / `mimeType` / `contentType` set to that MIME). Category is only in `category`. The 422 still happens, so the server check is not using that MIME or the filename extension.
+
+Until this returns `201`, the portal stores the file in the browser (IndexedDB) and lists it as **On this device**. Open, Edit, Change, and Remove work on that browser. Another device will not see the file until `GET /customers/me/documents?petId=` returns it.
+
+### MIME the upload must accept
+
+Decide from the file part’s `Content-Type`, and if that is empty or `application/octet-stream`, from the filename extension.
+
+| Extension | MIME |
+|-----------|------|
+| `.pdf` | `application/pdf` |
+| `.doc` | `application/msword` |
+| `.docx` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
+| `.xls` | `application/vnd.ms-excel` |
+| `.xlsx` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` |
+| `.ppt` | `application/vnd.ms-powerpoint` |
+| `.pptx` | `application/vnd.openxmlformats-officedocument.presentationml.presentation` |
+| `.txt` | `text/plain` |
+| `.csv` | `text/csv` |
+| `.rtf` | `application/rtf` |
+| `.jpg` `.jpeg` `.png` `.webp` `.gif` `.bmp` | matching `image/*` |
+
+Reject only when both the MIME and the extension are outside this list. Do not reject `application/pdf` because another field contains the category id (`id`, `past_reports`, …).
 
 Backend checklist:
 
-1. Implement preferred `POST /customers/me/pets/:petId/documents` accepting PDF + images.
-2. Validate MIME from the file part (or extension), not from a `type` form field used for category.
-3. If `/customers/me/files` is photo-only, return a distinct message (e.g. “images only”) so the client can skip it.
-4. Empty/`application/octet-stream` browser MIME for `.pdf` must still be accepted when the filename ends in `.pdf`.
-5. Implement **edit / replace / delete** (§5b–5d) so Documents → Edit / Change / Remove work end-to-end.
+1. Accept the table above on `POST /customers/me/pets/:petId/documents` (max 10 MB) and return the success body below.
+2. Validate MIME from the file part or the extension, not from a category field.
+3. Return the saved file on `GET /customers/me/documents?petId=`.
+4. Implement **edit / replace / delete** (§5b–5d) so Documents → Edit / Change / Remove persist on the server.
 
 ### Upload behavior
 
@@ -648,7 +674,8 @@ These are already integrated and used successfully by the portal (non-exhaustive
 - `GET/PATCH /customers/me`, `GET …/home`
 - Pets: `GET/POST` list & create, `GET/PATCH` by id (**photo upload is NOT reliable — see §4**)
 - Bookings: `GET` list & detail, `POST` create, journey; **`POST …/files` may soft-fail** (visit still created; portal shows a warning)
-- Health **reads** (summary, timeline, vaccinations, conditions, care plans, reminders), passport page for the owner, caregivers
+- Health **reads** (summary, timeline, vaccinations, conditions, care plans, reminders), passport page for the owner
+- Caregivers: `GET` list, `POST` create, and `POST …/revoke` save the invite; **the invite email is not sent — see §11**
 - Passport **share create** (`POST …/pets/:id/passport/shares`) returns a token; the **public read** and **revoke** must persist or the link opens the homepage / stays valid — see §10
 - Medications: `GET/POST /customers/me/medications` and `POST …/medications/:id/doses` work; **edit/stop (`PATCH`) is missing — see §8**
 - Addresses GET/POST
@@ -986,7 +1013,84 @@ Also accepted:
 
 ---
 
-## Soft / optional gaps (not blocking Priority 1–10)
+## 11. Caregiver invite email
+
+Passport → Caregivers saves the invite today (`family · invited`) and returns success, but the response has no `emailSent` and no message arrives in the invitee’s inbox.
+
+The portal already creates a 7-day passport share and sends that URL as `inviteUrl`. Until the API confirms `emailSent: true`, the portal opens the owner’s email app with the recipient, subject, and link filled in so they can send the message themselves.
+
+### Preferred
+
+```http
+POST /api/v1/customers/me/pets/:petId/caregivers
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "email": "family@email.com",
+  "inviteeEmail": "family@email.com",
+  "role": "family",
+  "sendEmail": true,
+  "notify": true,
+  "inviteUrl": "https://app.vetonspot.com/share/passport/<token>",
+  "expiresAt": "2026-10-05T10:30:00.000Z"
+}
+```
+
+### Behavior
+
+- Verify the pet belongs to the authenticated customer.
+- Create or update one invite per email (`status: invited`). A repeat invite for the same email must not create a second row.
+- **Send an email** to `inviteeEmail` that includes `inviteUrl` (or a server-built accept link that opens the same read-only passport).
+- Return `emailSent: true` only after the mail provider accepts the message. A saved row with `emailSent` omitted or `false` is not a sent email.
+- The link in the email must keep working until `expiresAt`, and must show **Access revoked or expired** after revoke or expiry (§10).
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "caregiver-uuid",
+    "inviteeEmail": "family@email.com",
+    "role": "family",
+    "status": "invited",
+    "emailSent": true,
+    "inviteUrl": "https://app.vetonspot.com/share/passport/<token>"
+  }
+}
+```
+
+### Resend an existing invite
+
+```http
+POST /api/v1/customers/me/pets/:petId/caregivers/:caregiverId/resend
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "email": "family@email.com",
+  "inviteUrl": "https://app.vetonspot.com/share/passport/<token>",
+  "sendEmail": true
+}
+```
+
+Same response shape. `emailSent: true` only when a new message was accepted.
+
+Also accepted for the first send: `POST /customers/me/pets/:petId/caregivers/invite` and `POST /customers/me/pets/:petId/caregivers/:caregiverId/send`.
+
+### Errors
+
+| Status | When |
+|--------|------|
+| `400` / `422` | Missing or invalid email |
+| `401` | No valid customer token |
+| `403` | Pet belongs to another customer |
+| `404` | Pet or caregiver id not found |
+
+---
+
+## Soft / optional gaps (not blocking Priority 1–11)
 
 | Method | Path | Notes |
 |--------|------|--------|
@@ -1059,3 +1163,5 @@ Until then, resend is entirely MSG91 client SDK + existing verify/exchange APIs.
 8. `[API] PATCH /customers/me/medications/:id — edit dose times and stop a schedule`
 9. `[API] GET /public/passport-shares/:token — public read-only passport link`
 9b. `[API] POST /customers/me/passport-shares/:id/revoke — expire a passport share link`
+10. `[API] POST /customers/me/pets/:id/caregivers — send the caregiver invite email (emailSent: true)`
+10b. `[API] POST /customers/me/pets/:id/caregivers/:id/resend — resend a caregiver invite email`

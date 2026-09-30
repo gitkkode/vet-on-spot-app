@@ -22,7 +22,7 @@ export const PET_DOC_CATEGORIES: PetDocCategory[] = [
     id: 'id',
     label: 'ID & registration',
     hint: 'Pet ID, license, microchip certificate, registration papers',
-    accept: 'image/*,.pdf,.jpg,.jpeg,.png,.webp',
+    accept: 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.jpg,.jpeg,.png,.webp',
   },
   {
     id: 'photos',
@@ -34,31 +34,31 @@ export const PET_DOC_CATEGORIES: PetDocCategory[] = [
     id: 'past_reports',
     label: 'Past reports',
     hint: 'Lab results, radiology, discharge summaries from other clinics',
-    accept: 'image/*,.pdf,.jpg,.jpeg,.png,.webp',
+    accept: 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.jpg,.jpeg,.png,.webp',
   },
   {
     id: 'vaccination',
     label: 'Vaccination records',
     hint: 'Vaccine cards and immunization certificates',
-    accept: 'image/*,.pdf,.jpg,.jpeg,.png,.webp',
+    accept: 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.jpg,.jpeg,.png,.webp',
   },
   {
     id: 'prescription',
     label: 'Prescriptions',
     hint: 'Rx slips and medication instructions from past care',
-    accept: 'image/*,.pdf,.jpg,.jpeg,.png,.webp',
+    accept: 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.jpg,.jpeg,.png,.webp',
   },
   {
     id: 'clinical',
     label: 'Clinical notes',
     hint: 'Visit summaries and clinical files from VetOnSpot care',
-    accept: 'image/*,.pdf,.jpg,.jpeg,.png,.webp',
+    accept: 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.jpg,.jpeg,.png,.webp',
   },
   {
     id: 'other',
     label: 'Other',
     hint: 'Anything else useful for the care team',
-    accept: 'image/*,.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp',
+    accept: 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.jpg,.jpeg,.png,.webp',
   },
 ];
 
@@ -149,6 +149,8 @@ export function isAllowedPetDocument(file: File): boolean {
   const type = String(file.type || '').toLowerCase();
   const name = String(file.name || '').toLowerCase();
   if (type.startsWith('image/') || type === 'application/pdf') return true;
-  if (/msword|officedocument|text\/plain/.test(type)) return true;
-  return /\.(jpe?g|png|webp|gif|bmp|pdf|docx?|txt)$/i.test(name);
+  if (/msword|officedocument|text\/plain|text\/csv|spreadsheet|presentation|application\/rtf|opendocument/.test(type)) {
+    return true;
+  }
+  return /\.(jpe?g|png|webp|gif|bmp|pdf|docx?|xlsx?|pptx?|txt|csv|rtf|odt)$/i.test(name);
 }

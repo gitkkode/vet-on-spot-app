@@ -88,7 +88,13 @@ type PendingEdit = PendingBookingEdit;
             <span class="countdown" [class.countdown--soon]="countdownSoon()">{{ countdown() }}</span>
           }
         </div>
-        <h1>{{ displayPetName(booking.petName) }}</h1>
+        @if (bookingPetId(booking); as petId) {
+          <h1>
+            <a class="hero__pet" [routerLink]="['/pets', petId]">{{ displayPetName(booking.petName) }}</a>
+          </h1>
+        } @else {
+          <h1>{{ displayPetName(booking.petName) }}</h1>
+        }
         <span class="pill" [class.pill--pulse]="journeyLive()">
           <span class="pill__dot" aria-hidden="true"></span>
           {{ booking.customerStatus?.label || booking.status || 'Received' }}
@@ -122,19 +128,19 @@ type PendingEdit = PendingBookingEdit;
       }
 
       <section class="facts" aria-label="Visit details">
-        <button type="button" class="fact" style="--i: 0" (click)="nudgeFact(0)" [class.fact--tap]="tappedFact() === 0">
+        <div class="fact" style="--i: 0">
           <em>Where</em>
           <strong>{{ prettyLocation(booking.location) || 'Address pending' }}</strong>
-        </button>
-        <button type="button" class="fact" style="--i: 1" (click)="nudgeFact(1)" [class.fact--tap]="tappedFact() === 1">
+        </div>
+        <div class="fact" style="--i: 1">
           <em>Doctor</em>
           <strong>{{ doctorLabel(booking) }}</strong>
-        </button>
-        <button type="button" class="fact" style="--i: 2" (click)="nudgeFact(2)" [class.fact--tap]="tappedFact() === 2">
+        </div>
+        <div class="fact" style="--i: 2">
           <em>Why</em>
           <strong>{{ prettyReason(booking.reason) }}</strong>
-        </button>
-        <button type="button" class="fact fact--pay" style="--i: 3" (click)="nudgeFact(3)" [class.fact--tap]="tappedFact() === 3">
+        </div>
+        <div class="fact fact--pay" style="--i: 3">
           <em>Pay</em>
           <strong class="pay" [class.pay--open]="isUnpaid(booking.paymentStatus)">
             {{ prettyPay(booking.paymentStatus) }}
@@ -142,7 +148,7 @@ type PendingEdit = PendingBookingEdit;
           @if (isUnpaid(booking.paymentStatus) && booking.paymentStatus !== 'failed') {
             <span class="fact__hint">Base fee {{ consultFee }} · when the vet arrives</span>
           }
-        </button>
+        </div>
       </section>
 
       <div class="ref-row">
@@ -577,6 +583,12 @@ type PendingEdit = PendingBookingEdit;
       letter-spacing: -0.04em;
       line-height: 1;
     }
+    .hero__pet {
+      color: inherit;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .hero__pet:hover { text-decoration: underline; text-underline-offset: 4px; }
     .pill {
       display: inline-flex;
       align-items: center;
@@ -680,7 +692,7 @@ type PendingEdit = PendingBookingEdit;
       appearance: none;
       text-align: left;
       font: inherit;
-      cursor: pointer;
+      cursor: default;
       background: #fffef9;
       border: 1px solid var(--vos-border, #e8e0d4);
       border-radius: 18px;
@@ -694,14 +706,9 @@ type PendingEdit = PendingBookingEdit;
       transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
       -webkit-tap-highlight-color: transparent;
     }
-    .fact:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 12px 28px rgba(20, 16, 12, 0.07);
-      border-color: rgba(253, 74, 41, 0.22);
-    }
-    .fact:active, .fact--tap {
-      transform: scale(0.97);
-      border-color: rgba(253, 74, 41, 0.4);
+    .fact:hover,
+    .fact:active {
+      transform: none;
     }
     .fact em {
       font-style: normal;
@@ -1305,7 +1312,6 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
   readonly freshFlash = signal(false);
   readonly countdown = signal('');
   readonly countdownSoon = signal(false);
-  readonly tappedFact = signal<number | null>(null);
   readonly focusedStep = signal<number | null>(null);
   readonly editOpen = signal(false);
   readonly editSaving = signal(false);
@@ -1330,7 +1336,6 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private copyTimer: ReturnType<typeof setTimeout> | null = null;
   private flashTimer: ReturnType<typeof setTimeout> | null = null;
-  private tapTimer: ReturnType<typeof setTimeout> | null = null;
   private lastLoadedAt = 0;
 
   constructor(
@@ -1390,7 +1395,6 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.copyTimer) clearTimeout(this.copyTimer);
     if (this.flashTimer) clearTimeout(this.flashTimer);
-    if (this.tapTimer) clearTimeout(this.tapTimer);
     if (this.editOkTimer) clearTimeout(this.editOkTimer);
     document.body.style.overflow = '';
   }
@@ -1419,10 +1423,8 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
     return `${done} of ${steps.length} steps done`;
   }
 
-  nudgeFact(i: number) {
-    this.tappedFact.set(i);
-    if (this.tapTimer) clearTimeout(this.tapTimer);
-    this.tapTimer = setTimeout(() => this.tappedFact.set(null), 220);
+  bookingPetId(booking: any): string {
+    return String(booking?.petId || booking?.pet?.id || '').trim();
   }
 
   focusStep(i: number) {

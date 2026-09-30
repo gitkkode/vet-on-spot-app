@@ -5,12 +5,14 @@ import { Subscription } from 'rxjs';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { petInitial } from '../../utils/health-records';
 import { HealthShellComponent } from '../../shared/health-shell.component';
+import { VosPetAvatarComponent } from '../../shared/vos-pet-avatar.component';
 import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
 import { rememberPassportShare, revokeCachedPassportShare, shareTokenOf } from '../../utils/passport-share';
+import { resolvePetPhotoUrl } from '../../utils/pet-photo';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule, HealthShellComponent, VosTitleCasePipe],
+  imports: [RouterLink, FormsModule, HealthShellComponent, VosTitleCasePipe, VosPetAvatarComponent],
   selector: 'app-pet-passport',
   template: `
     <vos-health-shell
@@ -50,11 +52,7 @@ import { rememberPassportShare, revokeCachedPassportShare, shareTokenOf } from '
 
           <div class="pass__body">
             <div class="pass__avatar" aria-hidden="true">
-              @if (d.pet?.photoUrl) {
-                <img [src]="d.pet.photoUrl" alt="" />
-              } @else {
-                {{ petInitial(d.pet?.name) }}
-              }
+              <vos-pet-avatar [pet]="d.pet" tone="inverse" />
             </div>
             <div class="pass__identity">
               <p class="pass__species">{{ d.pet?.species | vosTitleCase:'Pet' }} · {{ d.pet?.breed | vosTitleCase:'Mixed' }}</p>
@@ -212,9 +210,12 @@ import { rememberPassportShare, revokeCachedPassportShare, shareTokenOf } from '
               <strong>{{ c.inviteeEmail || c.email }}</strong>
               <span>{{ c.role }} · {{ c.status }}</span>
             </div>
-            @if (c.status !== 'revoked') {
-              <button type="button" class="ghost" (click)="revokeCare(c.id)">Revoke</button>
-            }
+            <div class="care-actions">
+              @if (c.status !== 'revoked') {
+                <button type="button" class="ghost" [disabled]="inviting()" (click)="sendInviteMail(c)">Send email</button>
+                <button type="button" class="ghost" (click)="revokeCare(c.id)">Revoke</button>
+              }
+            </div>
           </div>
         }
         <div class="share">
@@ -334,6 +335,7 @@ import { rememberPassportShare, revokeCachedPassportShare, shareTokenOf } from '
       margin-bottom: 22px;
     }
     .pass__avatar {
+      position: relative;
       width: 72px; height: 72px; border-radius: 22px;
       overflow: hidden; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
@@ -507,9 +509,10 @@ import { rememberPassportShare, revokeCachedPassportShare, shareTokenOf } from '
     }
 
     .care-row {
-      display: flex; justify-content: space-between; gap: 12px; align-items: center;
+      display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap;
       padding: 12px 0; border-top: 1px solid var(--vos-border);
     }
+    .care-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
     .care-row:first-of-type { border-top: 0; }
     .care-row strong { display: block; font-family: var(--vos-display); }
     .care-row span { color: var(--vos-ink-muted); font-size: 0.88rem; }
@@ -519,6 +522,7 @@ import { rememberPassportShare, revokeCachedPassportShare, shareTokenOf } from '
       border-radius: 999px; padding: 8px 14px; cursor: pointer;
       color: #B42318; font-weight: 700; font-size: 0.88rem;
     }
+    .ghost:disabled { opacity: 0.5; cursor: default; }
 
     @media (prefers-reduced-motion: reduce) {
       .pass, .pass__shine, .pass-skel { animation: none !important; }
@@ -695,9 +699,10 @@ export class PetPassportComponent implements OnInit, OnDestroy {
         this.api.pet(id).catch(() => null),
       ]);
       if (id !== this.petId) return;
+      const petRecord = { ...(passport?.pet || {}), ...(pet || {}), id };
       const merged = {
         ...(passport || {}),
-        pet: { ...(passport?.pet || {}), ...(pet || {}) },
+        pet: { ...petRecord, photoUrl: resolvePetPhotoUrl(petRecord) },
       };
       this.data.set(merged);
       const list = Array.isArray(carers)
@@ -787,42 +792,9 @@ export class PetPassportComponent implements OnInit, OnDestroy {
       return;
     }
     try {
-      const res = await this.api.inviteCaregiver(this.petId, {
-        email,
-        inviteeEmail: email,
-        role: 'family',
-        sendEmail: true,
-        notify: true,
-      });
-      const sent =
-        res?.emailSent === true ||
-        res?.inviteSent === true ||
-        res?.notified === true ||
-        /sent|email/i.test(String(res?.message || ''));
-      const inviteLink = String(res?.inviteUrl || res?.url || res?.link || '').trim();
-      if (sent) {
-        this.careOk.set(`Invitation email sent to ${email}.`);
-      } else if (inviteLink) {
-        this.careOk.set(`Invite created. Share this link: ${inviteLink}`);
-        try {
-          await navigator.clipboard.writeText(inviteLink);
-          this.careOk.set(`Invite created and link copied for ${email}.`);
-        } catch {
-          /* ignore */
-        }
-      } else {
-        this.careOk.set(
-          `Invite saved for ${email}. If they don’t get an email shortly, ask them to check spam or contact support.`,
-        );
-      }
+      await this.deliverCaregiverInvite(email);
       this.inviteEmail = '';
-      const carers = await this.api.caregivers(this.petId);
-      const list = Array.isArray(carers)
-        ? carers
-        : Array.isArray((carers as any)?.caregivers)
-          ? (carers as any).caregivers
-          : [];
-      this.caregivers.set(list);
+      await this.reloadCaregivers();
     } catch (e: any) {
       this.careErr.set(e?.error?.message || e?.message || 'Invite failed');
     } finally {
@@ -830,17 +802,131 @@ export class PetPassportComponent implements OnInit, OnDestroy {
     }
   }
 
+  async sendInviteMail(caregiver: any) {
+    if (this.inviting()) return;
+    this.inviting.set(true);
+    this.careErr.set('');
+    this.careOk.set('');
+    const email = String(caregiver?.inviteeEmail || caregiver?.email || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      this.careErr.set('This invite has no email address.');
+      this.inviting.set(false);
+      return;
+    }
+    try {
+      await this.deliverCaregiverInvite(email, String(caregiver?.id || caregiver?.caregiverId || ''));
+    } catch (e: any) {
+      this.careErr.set(e?.error?.message || e?.message || 'Could not prepare the invite email');
+    } finally {
+      this.inviting.set(false);
+    }
+  }
+
+  private async deliverCaregiverInvite(email: string, caregiverId = '') {
+    const link = await this.caregiverInviteLink();
+    let res: { record: any; emailSent: boolean };
+    try {
+      res = await this.api.inviteCaregiver(this.petId, {
+        email,
+        inviteeEmail: email,
+        role: 'family',
+        sendEmail: true,
+        notify: true,
+        inviteUrl: link.url,
+        shareUrl: link.url,
+        expiresAt: link.expiresAt,
+        ...(caregiverId ? { caregiverId } : {}),
+      });
+    } catch (e: any) {
+      const msg = String(e?.error?.message || e?.message || '');
+      if (!/already|exists|duplicate/i.test(msg)) throw e;
+      res = { record: null, emailSent: false };
+    }
+    if (res.emailSent) {
+      this.careOk.set(`Invitation email sent to ${email}.`);
+      return;
+    }
+    this.openCaregiverMail(email, link);
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(link.url);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+    this.careOk.set(
+      copied
+        ? `Your email app is open with an invite for ${email}. Send that message so they receive the passport link. The link is copied too.`
+        : `Your email app is open with an invite for ${email}. Send that message so they receive this passport link: ${link.url}`,
+    );
+  }
+
+  private async caregiverInviteLink(): Promise<{ url: string; expiresAt: string }> {
+    const hours = 168;
+    const row = await this.api.createPassportShare(this.petId, {
+      expiresInHours: hours,
+      purpose: 'caregiver',
+    });
+    const expiresAt = String(
+      row?.expiresAt || new Date(Date.now() + hours * 60 * 60 * 1000).toISOString(),
+    );
+    const token = shareTokenOf(row);
+    if (!token) throw new Error('Could not create an invite link.');
+    rememberPassportShare({
+      token,
+      id: String(row?.id || row?.shareId || ''),
+      expiresAt,
+      passport: row?.passport || this.data(),
+    });
+    return { url: this.shareUrl({ ...(row || {}), token, expiresAt }), expiresAt };
+  }
+
+  private openCaregiverMail(email: string, link: { url: string; expiresAt: string }) {
+    const petName = String(this.data()?.pet?.name || 'your pet').trim() || 'your pet';
+    const when = this.inviteExpiryLabel(link.expiresAt);
+    const subject = `Invitation to view ${petName}'s VetOnSpot passport`;
+    const body = [
+      `You've been invited to view ${petName}'s pet passport on VetOnSpot.`,
+      '',
+      'Open this read-only link:',
+      link.url,
+      '',
+      when ? `This link expires ${when}.` : '',
+      '',
+      "If you weren't expecting this, you can ignore the message.",
+    ]
+      .filter((line, index, lines) => line !== '' || lines[index - 1] !== '')
+      .join('\n');
+    const href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
+  private inviteExpiryLabel(iso: string): string {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  private async reloadCaregivers() {
+    const carers = await this.api.caregivers(this.petId);
+    const list = Array.isArray(carers)
+      ? carers
+      : Array.isArray((carers as any)?.caregivers)
+        ? (carers as any).caregivers
+        : [];
+    this.caregivers.set(list);
+  }
+
   async revokeCare(id: string) {
     this.careErr.set('');
     try {
       await this.api.revokeCaregiver(this.petId, id);
-      const carers = await this.api.caregivers(this.petId);
-      const list = Array.isArray(carers)
-        ? carers
-        : Array.isArray((carers as any)?.caregivers)
-          ? (carers as any).caregivers
-          : [];
-      this.caregivers.set(list);
+      await this.reloadCaregivers();
     } catch (e: any) {
       this.careErr.set(e?.message || 'Revoke failed');
     }

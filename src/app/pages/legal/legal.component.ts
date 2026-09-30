@@ -11,63 +11,86 @@ type DocKind = 'privacy' | 'terms';
     <div class="page">
       <header class="top">
         <a routerLink="/" class="brand">
-          <span class="brand__mark">VetonSpot</span>
+          <span class="brand__mark">Vetonsp<span class="o">●</span>t</span>
           <span class="brand__sub">Pet Parent Portal</span>
         </a>
-        <a class="back" [routerLink]="backLink()">← {{ backLabel() }}</a>
+        <a class="back" [routerLink]="backLink()">
+          <span class="back__chev" aria-hidden="true">‹</span>
+          {{ backLabel() }}
+        </a>
       </header>
 
-      <article class="doc">
-        <p class="eyebrow">Legal</p>
-        <h1>{{ title() }}</h1>
-        <p class="lede">{{ lede() }}</p>
-        <p class="updated">Last updated: {{ updated }}</p>
+      <div class="frame">
+        <article class="doc">
+          <aside class="rail">
+            <p class="eyebrow">Legal</p>
+            <h1>{{ title() }}</h1>
+            <p class="updated">Last updated {{ updated }}</p>
+            <nav class="toc" [attr.aria-label]="title()">
+              @for (section of sections(); track section.heading) {
+                <a [href]="'#' + slug(section.heading)">{{ section.heading }}</a>
+              }
+            </nav>
+          </aside>
 
-        @for (section of sections(); track section.heading) {
-          <section>
-            <h2>{{ section.heading }}</h2>
-            @for (p of section.paragraphs; track $index) {
-              <p>{{ p }}</p>
+          <div class="body">
+            <p class="lede">{{ lede() }}</p>
+            @for (section of sections(); track section.heading) {
+              <section [id]="slug(section.heading)">
+                <h2>{{ section.heading }}</h2>
+                @for (p of section.paragraphs; track $index) {
+                  <p>{{ p }}</p>
+                }
+              </section>
             }
-          </section>
-        }
-
-        <p class="contact">
-          Questions? Reach us at
-          <a href="mailto:hello@vetonspot.com">hello@vetonspot.com</a>
-          or through
-          <a routerLink="/support">Support</a>
-          in the portal.
-        </p>
-      </article>
+            <p class="contact">
+              Questions? Reach us at
+              <a href="mailto:hello@vetonspot.com">hello@vetonspot.com</a>
+              or through
+              <a routerLink="/support">Support</a>
+              in the portal.
+            </p>
+          </div>
+        </article>
+      </div>
     </div>
   `,
   styles: [`
+    :host { display: block; min-height: 100vh; }
     .page {
       min-height: 100vh;
-      background:
-        radial-gradient(ellipse 80% 50% at 10% -10%, rgba(253, 74, 41, 0.08), transparent 55%),
-        radial-gradient(ellipse 60% 40% at 100% 0%, rgba(10, 10, 10, 0.04), transparent 50%),
-        var(--vos-bg);
+      display: flex;
+      flex-direction: column;
       color: var(--vos-ink);
+      font-family: var(--vos-font);
+      background:
+        radial-gradient(ellipse 55% 32% at 100% 0%, rgba(253, 74, 41, 0.06) 0%, transparent 60%),
+        var(--vos-bg);
+    }
+    .top, .frame {
+      width: 100%;
+      max-width: var(--vos-max);
+      margin: 0 auto;
+      padding-left: var(--vos-gutter);
+      padding-right: var(--vos-gutter);
     }
     .top {
-      max-width: 820px;
-      margin: 0 auto;
-      padding: 22px var(--vos-gutter) 0;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
+      padding-top: 18px;
+      padding-bottom: 14px;
     }
     .brand { text-decoration: none; color: inherit; }
     .brand__mark {
       display: block;
       font-family: var(--vos-display);
       font-weight: 700;
-      font-size: 1.25rem;
-      letter-spacing: -0.03em;
+      font-size: 1.35rem;
+      letter-spacing: -0.04em;
     }
+    .brand__mark .o { color: var(--vos-brand); }
     .brand__sub {
       display: block;
       font-family: var(--vos-mono);
@@ -78,18 +101,55 @@ type DocKind = 'privacy' | 'terms';
       margin-top: 2px;
     }
     .back {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 0 14px 0 8px;
+      border-radius: 999px;
+      border: 1px solid var(--vos-border);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 4px 14px rgba(10, 10, 10, 0.04);
+      color: var(--vos-ink);
       text-decoration: none;
-      color: var(--vos-ink-muted);
-      font-weight: 600;
+      font-weight: 700;
       font-size: 0.92rem;
     }
-    .back:hover { color: var(--vos-brand); }
-
-    .doc {
-      max-width: 820px;
-      margin: 0 auto;
-      padding: 28px var(--vos-gutter) 64px;
+    .back:hover { border-color: rgba(253, 74, 41, 0.28); }
+    .back__chev {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #fff 0%, var(--vos-brand-soft) 100%);
+      border: 1px solid rgba(253, 74, 41, 0.18);
+      color: var(--vos-brand);
+      font-size: 15px;
+      line-height: 1;
+      font-weight: 800;
     }
+
+    .frame {
+      flex: 1;
+      display: flex;
+      padding-bottom: 28px;
+    }
+    .doc {
+      flex: 1;
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+      gap: 28px;
+      align-items: start;
+      background: #fff;
+      border: 1px solid var(--vos-border);
+      border-radius: 28px;
+      box-shadow: var(--vos-shadow-sm);
+      padding: 28px 28px 32px;
+    }
+    .rail { position: sticky; top: 18px; }
     .eyebrow {
       margin: 0 0 8px;
       font-family: var(--vos-mono);
@@ -100,49 +160,77 @@ type DocKind = 'privacy' | 'terms';
       font-weight: 700;
     }
     h1 {
-      margin: 0 0 10px;
-      font-family: var(--vos-display);
-      font-size: clamp(1.75rem, 4vw, 2.35rem);
-      letter-spacing: -0.04em;
-      line-height: 1.15;
-    }
-    .lede {
       margin: 0 0 8px;
-      color: var(--vos-ink-muted);
-      font-size: 1.05rem;
-      line-height: 1.5;
-      max-width: 52ch;
+      font-family: var(--vos-display);
+      font-size: clamp(1.7rem, 3vw, 2.2rem);
+      letter-spacing: -0.04em;
+      line-height: 1.1;
     }
     .updated {
-      margin: 0 0 28px;
+      margin: 0 0 16px;
       font-size: 0.85rem;
       color: var(--vos-ink-faint);
     }
-    section { margin-bottom: 22px; }
+    .toc { display: grid; gap: 6px; }
+    .toc a {
+      color: var(--vos-ink-muted);
+      text-decoration: none;
+      font-weight: 650;
+      font-size: 0.92rem;
+      line-height: 1.35;
+      padding: 8px 10px;
+      border-radius: 12px;
+    }
+    .toc a:hover { background: var(--vos-brand-soft); color: var(--vos-brand); }
+
+    .lede {
+      margin: 0 0 22px;
+      color: var(--vos-ink-muted);
+      font-size: 1.05rem;
+      line-height: 1.5;
+    }
+    section {
+      margin: 0 0 14px;
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: var(--vos-bg-accent);
+      border: 1px solid var(--vos-border);
+    }
     h2 {
       margin: 0 0 8px;
       font-family: var(--vos-display);
-      font-size: 1.15rem;
+      font-size: 1.12rem;
       letter-spacing: -0.02em;
     }
     section p {
       margin: 0 0 10px;
       color: var(--vos-ink-muted);
-      line-height: 1.55;
+      line-height: 1.6;
     }
+    section p:last-child { margin-bottom: 0; }
     .contact {
-      margin-top: 28px;
-      padding-top: 20px;
-      border-top: 1px solid var(--vos-border);
+      margin: 8px 0 0;
+      padding: 16px 18px;
+      border-radius: 18px;
+      border: 1px solid var(--vos-border);
       color: var(--vos-ink-muted);
       line-height: 1.5;
     }
     .contact a {
       color: var(--vos-brand);
-      font-weight: 600;
+      font-weight: 700;
       text-decoration: none;
     }
     .contact a:hover { text-decoration: underline; }
+
+    @media (max-width: 800px) {
+      .doc {
+        grid-template-columns: 1fr;
+        padding: 20px 16px 24px;
+        border-radius: 22px;
+      }
+      .rail { position: static; }
+    }
   `],
 })
 export class LegalComponent implements OnInit {
@@ -155,6 +243,14 @@ export class LegalComponent implements OnInit {
   readonly backLabel = signal('Home');
 
   constructor(private route: ActivatedRoute) {}
+
+  slug(heading: string): string {
+    return String(heading || '')
+      .toLowerCase()
+      .replace(/&/g, 'and')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
 
   ngOnInit(): void {
     const doc = (this.route.snapshot.data['doc'] as DocKind) || 'privacy';

@@ -8,6 +8,7 @@ import { BookingGateService } from '../../services/booking-gate.service';
 import { blockingBookings, bookingBlocksPet } from '../../utils/booking-pending';
 import { resolvePetPhotoUrl } from '../../utils/pet-photo';
 import { displayPetName } from '../../utils/health-records';
+import { VosPetAvatarComponent } from '../../shared/vos-pet-avatar.component';
 import { NavBackService } from '../../services/nav-back.service';
 import {
   dedupeAddressText,
@@ -152,7 +153,7 @@ const INDIAN_STATES = [
 
 @Component({
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, VosPetAvatarComponent],
   selector: 'app-book-wizard',
   template: `
     <button type="button" class="vos-back" (click)="onTopBack()">
@@ -253,11 +254,7 @@ const INDIAN_STATES = [
                   (click)="togglePet(p.id)"
                 >
                   <span class="chip__avatar" aria-hidden="true">
-                    @if (petPhotoUrl(p)) {
-                      <img [src]="petPhotoUrl(p)" alt="" (error)="onPetPhotoError(p.id)" />
-                    } @else {
-                      <span class="chip__mono">{{ petInitial(p.name) }}</span>
-                    }
+                    <vos-pet-avatar [pet]="p" />
                   </span>
                   <span class="chip__copy">
                     <strong>{{ displayPetName(p.name) }}</strong>
@@ -814,6 +811,7 @@ const INDIAN_STATES = [
       box-sizing: border-box;
     }
     .chip__avatar {
+      position: relative;
       width: 48px;
       height: 48px;
       border-radius: 50%;

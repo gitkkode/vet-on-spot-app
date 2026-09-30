@@ -6,10 +6,11 @@ import { BookingGateService } from '../../services/booking-gate.service';
 import { resolvePetPhotoUrl } from '../../utils/pet-photo';
 import { displayPetName, titleCase } from '../../utils/health-records';
 import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import { VosPetAvatarComponent } from '../../shared/vos-pet-avatar.component';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent],
+  imports: [RouterLink, VosBackButtonComponent, VosPetAvatarComponent],
   selector: 'app-pets-list',
   template: `
     <vos-back-button />
@@ -57,15 +58,7 @@ import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
           <article class="card" [class.card--active]="activePet.get() === p.id">
             <a class="card__main" [routerLink]="['/pets', p.id]" (click)="activate(p.id)">
               <div class="portrait" aria-hidden="true">
-                @if (showPhoto(p)) {
-                  <img
-                    [src]="petPhotoSrc(p)"
-                    alt=""
-                    (error)="onPhotoError(p.id)"
-                  />
-                } @else {
-                  <span class="portrait__initial">{{ petInitial(p.name) }}</span>
-                }
+                <vos-pet-avatar [pet]="p" />
               </div>
               <h2>{{ displayName(p.name) }}</h2>
               <p class="meta">{{ line(p) }}</p>
