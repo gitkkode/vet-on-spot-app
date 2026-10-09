@@ -2,11 +2,11 @@ import { Component, OnInit, computed, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { BookingGateService } from '../../services/booking-gate.service';
-import { applyPendingEditsToList, normalizeBookingsList } from '../../utils/booking-pending';
+import { applyPendingEditsToList, normalizeBookingsList, visitPetNames } from '../../utils/booking-pending';
 import { displayPetName, petInitial as petInitialFn, titleCase } from '../../utils/health-records';
 import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 
-type FilterTab = 'upcoming' | 'past' | 'all';
+type FilterTab = 'upcoming' | 'past' | 'cancelled' | 'all';
 
 @Component({
   standalone: true,
@@ -60,7 +60,9 @@ type FilterTab = 'upcoming' | 'past' | 'all';
         <a class="hero" [routerLink]="['/bookings', next.id]">
           <div class="hero__glow" aria-hidden="true"></div>
           <p class="hero__kicker">Up next</p>
-          <strong class="hero__title">{{ displayPetName(next.petName) }}’s visit</strong>
+          <strong class="hero__title">
+            {{ visitHeading(next) }}@if (!isGroupVisit(next)) {’s visit}
+          </strong>
           <p class="hero__detail">
             {{ statusLabel(next) }}
             · {{ prettyWhen(next.scheduledDate, next.scheduledTime) }}
@@ -78,6 +80,10 @@ type FilterTab = 'upcoming' | 'past' | 'all';
           Past
           <em>{{ past().length }}</em>
         </button>
+        <button type="button" role="tab" [class.on]="tab() === 'cancelled'" [attr.aria-selected]="tab() === 'cancelled'" (click)="tab.set('cancelled')">
+          Cancelled
+          <em>{{ cancelled().length }}</em>
+        </button>
         <button type="button" role="tab" [class.on]="tab() === 'all'" [attr.aria-selected]="tab() === 'all'" (click)="tab.set('all')">
           All
           <em>{{ items().length }}</em>
@@ -89,6 +95,8 @@ type FilterTab = 'upcoming' | 'past' | 'all';
           @if (tab() === 'upcoming') {
             <p>Nothing upcoming — book when you’re ready.</p>
             <a routerLink="/book/new">Book a visit</a>
+          } @else if (tab() === 'cancelled') {
+            <p>No cancelled appointments.</p>
           } @else {
             <p>No past visits in this view yet.</p>
           }
@@ -107,7 +115,7 @@ type FilterTab = 'upcoming' | 'past' | 'all';
                       </div>
                       <div class="card__body">
                         <div class="card__top">
-                          <strong>{{ displayPetName(b.petName) }}</strong>
+                          <strong>{{ visitHeading(b) }}</strong>
                           <span class="badge" [attr.data-tone]="tone(b)">{{ statusLabel(b) }}</span>
                         </div>
                         <p class="when">{{ prettyWhen(b.scheduledDate, b.scheduledTime) }}</p>
@@ -238,9 +246,12 @@ type FilterTab = 'upcoming' | 'past' | 'all';
     }
 
     .tabs {
-      display: grid; grid-template-columns: repeat(3, 1fr);
+      display: grid; grid-template-columns: repeat(2, 1fr);
       gap: 6px; padding: 5px; margin-bottom: 18px;
       background: #f3efe6; border-radius: 16px;
+    }
+    @media (min-width: 720px) {
+      .tabs { grid-template-columns: repeat(4, 1fr); }
     }
     .tabs button {
       border: 0; background: transparent; cursor: pointer;
@@ -416,11 +427,13 @@ export class BookingsListComponent implements OnInit {
   readonly cancelTicket = signal('');
 
   readonly upcoming = computed(() => this.items().filter((b) => this.isUpcoming(b)));
-  readonly past = computed(() => this.items().filter((b) => !this.isUpcoming(b)));
+  readonly cancelled = computed(() => this.items().filter((b) => this.isCancelled(b)));
+  readonly past = computed(() => this.items().filter((b) => this.isPast(b)));
   readonly filtered = computed(() => {
     const t = this.tab();
     if (t === 'upcoming') return this.upcoming();
     if (t === 'past') return this.past();
+    if (t === 'cancelled') return this.cancelled();
     return this.items();
   });
   readonly nextUp = computed(() => this.upcoming()[0] || null);
@@ -453,9 +466,10 @@ export class BookingsListComponent implements OnInit {
     try {
       const list = applyPendingEditsToList(normalizeBookingsList(await this.api.bookings()));
       this.items.set(this.sortBookings(list));
-      // Prefer upcoming when any exist (including locally rescheduled slots)
-      if (this.upcoming().length) this.tab.set('upcoming');
+      if (this.cancelledBanner()) this.tab.set('cancelled');
+      else if (this.upcoming().length) this.tab.set('upcoming');
       else if (this.past().length) this.tab.set('past');
+      else if (this.cancelled().length) this.tab.set('cancelled');
     } catch (e: any) {
       this.error.set(e?.error?.message || e?.message || 'Couldn’t load appointments');
     } finally {
@@ -463,9 +477,22 @@ export class BookingsListComponent implements OnInit {
     }
   }
 
+  isCancelled(b: any): boolean {
+    if (b?._cancelled) return true;
+    if (b?._superseded && !b?._cancelled) return false;
+    const text = `${b?.status || ''} ${b?.customerStatus?.code || ''} ${b?.customerStatus?.label || ''}`.toLowerCase();
+    return /cancel|terminat|void/.test(text);
+  }
+
+  isPast(b: any): boolean {
+    if (this.isCancelled(b) || this.isUpcoming(b)) return false;
+    if (b?._superseded) return false;
+    return this.isTerminal(b) || this.isStalePast(b);
+  }
+
   /** Past visits drop out of “upcoming” once the slot is well behind. */
   isUpcoming(b: any): boolean {
-    if (this.isTerminal(b) || this.isStalePast(b)) return false;
+    if (this.isCancelled(b) || b?._superseded || this.isTerminal(b) || this.isStalePast(b)) return false;
     const when = this.whenDate(b);
     if (!when) return true;
     return when.getTime() >= Date.now() - 4 * 3600 * 1000;
@@ -478,6 +505,7 @@ export class BookingsListComponent implements OnInit {
   }
 
   statusLabel(b: any): string {
+    if (this.isCancelled(b)) return 'Cancelled';
     if (this.isStalePast(b) && !this.isTerminal(b)) {
       const label = this.rawStatus(b);
       if (/in progress|consultation|en route|arrived/.test(label)) return 'Visit ended';
@@ -539,6 +567,18 @@ export class BookingsListComponent implements OnInit {
     return displayPetName(name, 'Visit');
   }
 
+  isGroupVisit(booking: any): boolean {
+    return visitPetNames(booking).length > 1;
+  }
+
+  visitHeading(booking: any): string {
+    const names = visitPetNames(booking)
+      .map((n) => this.displayPetName(n))
+      .filter((n) => n && n !== 'Visit');
+    if (names.length) return names.join(', ');
+    return this.displayPetName(booking?.petName);
+  }
+
   petInitial(name: string | null | undefined): string {
     return petInitialFn(name);
   }
@@ -591,6 +631,7 @@ export class BookingsListComponent implements OnInit {
   prettyReason(reason: string): string {
     const r = String(reason || '').trim();
     if (!r) return '';
+    if (r.includes('·')) return r;
     return r.charAt(0).toUpperCase() + r.slice(1);
   }
 

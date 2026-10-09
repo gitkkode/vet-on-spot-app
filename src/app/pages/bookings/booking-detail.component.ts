@@ -7,11 +7,13 @@ import { VosDatePickerComponent } from '../../shared/vos-date-picker.component';
 import { VosSelectComponent, VosSelectOption } from '../../shared/vos-select.component';
 import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
 import { displayPetName, titleCase } from '../../utils/health-records';
+import { rememberCancelNotification } from '../../utils/local-notifications';
 import { dedupeAddressText } from '../../utils/address';
 import {
   applyPendingEditToBooking,
   markBookingSuperseded,
   readPendingEdit,
+  visitPetNames,
   writePendingEdit,
   type PendingBookingEdit,
 } from '../../utils/booking-pending';
@@ -88,12 +90,14 @@ type PendingEdit = PendingBookingEdit;
             <span class="countdown" [class.countdown--soon]="countdownSoon()">{{ countdown() }}</span>
           }
         </div>
-        @if (bookingPetId(booking); as petId) {
+        @if (isGroupVisit(booking)) {
+          <h1>{{ visitHeading(booking) }}</h1>
+        } @else if (bookingPetId(booking); as petId) {
           <h1>
-            <a class="hero__pet" [routerLink]="['/pets', petId]">{{ displayPetName(booking.petName) }}</a>
+            <a class="hero__pet" [routerLink]="['/pets', petId]">{{ visitHeading(booking) }}</a>
           </h1>
         } @else {
-          <h1>{{ displayPetName(booking.petName) }}</h1>
+          <h1>{{ visitHeading(booking) }}</h1>
         }
         <span class="pill" [class.pill--pulse]="journeyLive()">
           <span class="pill__dot" aria-hidden="true"></span>
@@ -581,7 +585,7 @@ type PendingEdit = PendingBookingEdit;
       font-family: var(--vos-display);
       font-size: clamp(2rem, 6vw, 2.75rem);
       letter-spacing: -0.04em;
-      line-height: 1;
+      line-height: 1.08;
     }
     .hero__pet {
       color: inherit;
@@ -1427,6 +1431,18 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
     return String(booking?.petId || booking?.pet?.id || '').trim();
   }
 
+  isGroupVisit(booking: any): boolean {
+    return visitPetNames(booking).length > 1;
+  }
+
+  visitHeading(booking: any): string {
+    const names = visitPetNames(booking)
+      .map((n) => displayPetName(n))
+      .filter(Boolean);
+    if (names.length) return names.join(', ');
+    return displayPetName(booking?.petName);
+  }
+
   focusStep(i: number) {
     this.focusedStep.set(this.focusedStep() === i ? null : i);
   }
@@ -1481,6 +1497,7 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
 
   prettyReason(r: string | null | undefined): string {
     if (!r) return 'General visit';
+    if (r.includes('·')) return r;
     return r.charAt(0).toUpperCase() + r.slice(1);
   }
 
@@ -1614,7 +1631,13 @@ export class BookingDetailComponent implements OnInit, OnDestroy {
         reasonForVisit: this.cancelReason.trim() || 'Cancelled by customer',
         requestedAt: new Date().toISOString(),
         hideFromUpcoming: true,
+        kind: 'cancel',
         ticketId: result?.ticketId,
+      });
+      rememberCancelNotification({
+        bookingId,
+        petName: String(booking?.petName || booking?.pet?.name || '').trim() || undefined,
+        displayId: String(booking?.displayId || booking?.reference || '').trim() || undefined,
       });
 
       const petId = String(booking?.petId || booking?.pet?.id || '').trim();

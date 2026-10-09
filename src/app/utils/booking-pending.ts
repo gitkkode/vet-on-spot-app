@@ -14,6 +14,8 @@ export type PendingBookingEdit = {
   replacementId?: string;
   /** Hide this booking from Upcoming (superseded / cancelled locally). */
   hideFromUpcoming?: boolean;
+  /** Customer cancel, as opposed to a reschedule that replaced this visit. */
+  kind?: 'cancel' | 'reschedule';
   /** Inject into lists until the API returns the new booking. */
   synthetic?: {
     id: string;
@@ -85,6 +87,7 @@ export function markBookingSuperseded(
     ...slot,
     replacementId,
     hideFromUpcoming: true,
+    kind: 'reschedule',
   });
   writePendingEdit(replacementId, {
     ...slot,
@@ -117,19 +120,23 @@ export function applyPendingEditToBooking(booking: any): any {
   const pending = readPendingEdit(id);
   if (!pending) return booking;
   if (pending.hideFromUpcoming) {
+    const cancelled = pending.kind === 'cancel' || !pending.replacementId;
     return {
       ...booking,
-      status: 'cancelled',
+      status: cancelled ? 'cancelled' : 'rescheduled',
       customerStatus: {
         ...(booking.customerStatus || {}),
-        label: 'Rescheduled',
-        code: 'cancelled',
+        label: cancelled ? 'Cancelled' : 'Rescheduled',
+        code: cancelled ? 'cancelled' : 'rescheduled',
         detail: pending.replacementId
           ? `Moved to ${pending.replacementId}`
-          : 'Superseded by a newer booking',
+          : cancelled
+            ? pending.reasonForVisit || 'Cancelled by customer'
+            : 'Superseded by a newer booking',
       },
       _pendingEdit: true,
       _superseded: true,
+      _cancelled: cancelled,
       _replacementId: pending.replacementId || null,
     };
   }
@@ -294,5 +301,94 @@ export function bookingBlocksPet(
   const bName = normalizePetName(b?.petName || b?.pet?.name);
   if (!name || !bName || isGenericPetName(bName)) return false;
   return name === bName;
+}
+
+const VISIT_ROSTER_KEY = 'vos.booking.visitPets';
+
+/** Remember every pet on a visit so later screens can list them all. */
+export function rememberVisitPets(bookingIds: string[], petNames: string[]) {
+  const names = petNames.map((n) => String(n || '').trim()).filter(Boolean);
+  if (names.length < 2 || typeof localStorage === 'undefined') return;
+  let all: Record<string, string[]> = {};
+  try {
+    const raw = localStorage.getItem(VISIT_ROSTER_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (parsed && typeof parsed === 'object') all = parsed;
+  } catch {
+    all = {};
+  }
+  for (const id of bookingIds) {
+    const key = String(id || '').trim();
+    if (key) all[key] = names;
+  }
+  const keys = Object.keys(all);
+  if (keys.length > 40) {
+    for (const key of keys.slice(0, keys.length - 40)) delete all[key];
+  }
+  try {
+    localStorage.setItem(VISIT_ROSTER_KEY, JSON.stringify(all));
+  } catch {
+    /* storage full — intake text is the other copy */
+  }
+}
+
+function rosterFromStorage(bookingId: string): string[] {
+  const id = String(bookingId || '').trim();
+  if (!id || typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(VISIT_ROSTER_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    const names = all?.[id];
+    if (!Array.isArray(names)) return [];
+    return names.map((n: unknown) => String(n || '').trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function rosterFromText(text: string): string[] {
+  const match = String(text || '').match(/Pets on this visit:\s*([^\n]+)/i);
+  if (!match) return [];
+  return match[1]
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean);
+}
+
+/** Names from "Doggy: Sick · Blacky: Not eating". */
+function rosterFromReason(reason: string): string[] {
+  const parts = String(reason || '')
+    .split('·')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return [];
+  const names = parts.map((part) => {
+    const splitAt = part.indexOf(':');
+    if (splitAt <= 0) return '';
+    return part.slice(0, splitAt).trim();
+  });
+  if (names.some((n) => !n)) return [];
+  return names;
+}
+
+/** Every pet on this visit, not only the one the API stored as petName. */
+export function visitPetNames(b: any): string[] {
+  const id = String(b?.id || b?.displayId || b?.bookingId || '').trim();
+  const stored = rosterFromStorage(id);
+  if (stored.length > 1) return stored;
+
+  const fromObjects = Array.isArray(b?.pets)
+    ? b.pets.map((p: any) => String(p?.name || '').trim()).filter(Boolean)
+    : [];
+  if (fromObjects.length > 1) return fromObjects;
+
+  const fromText = rosterFromText(String(b?.intakeText || b?.intake || b?.notes || ''));
+  if (fromText.length > 1) return fromText;
+
+  const fromReason = rosterFromReason(String(b?.reason || b?.reasonForVisit || ''));
+  if (fromReason.length > 1) return fromReason;
+
+  const one = String(b?.petName || b?.pet?.name || '').trim();
+  return one ? [one] : [];
 }
 

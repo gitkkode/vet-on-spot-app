@@ -38,7 +38,7 @@ const QUICK_CHECKS: { key: QuickKey; label: string }[] = [
     <vos-back-button />
     <header class="head">
       <p class="eyebrow">Urgent care</p>
-      <h1>Something is wrong</h1>
+      <h1>Get urgent help</h1>
       <p class="vos-muted">
         Tell us what’s happening so we can connect you to care. This does not auto-dispatch a veterinarian.
       </p>
@@ -89,10 +89,16 @@ const QUICK_CHECKS: { key: QuickKey; label: string }[] = [
 
         <section class="card">
           <p class="label">What’s wrong? <span class="req">*</span></p>
-          <p class="hint">Pick the closest match — you can add detail next.</p>
-          <div class="cats">
+          <p class="hint">Select every issue that applies. You can add detail next.</p>
+          <div class="cats" role="group" aria-label="Issues">
             @for (c of categories; track c) {
-              <button type="button" class="cat" [class.on]="category===c" (click)="pickCategory(c)">{{ c }}</button>
+              <button
+                type="button"
+                class="cat"
+                [class.on]="isCategoryOn(c)"
+                [attr.aria-pressed]="isCategoryOn(c)"
+                (click)="toggleCategory(c)"
+              >{{ c }}</button>
             }
           </div>
           <div class="nav-row">
@@ -108,7 +114,7 @@ const QUICK_CHECKS: { key: QuickKey; label: string }[] = [
               <p class="label">Location &amp; story</p>
               <p class="hint">Where you are and what happened.</p>
             </div>
-            <button type="button" class="linkish" (click)="phase.set(1)">Change symptom</button>
+            <button type="button" class="linkish" (click)="phase.set(1)">Change issues</button>
           </div>
           <div class="fields">
             <label class="field">
@@ -348,7 +354,7 @@ export class EmergencyComponent implements OnInit {
   categories = CATEGORIES;
   quickChecks = QUICK_CHECKS;
   petId = '';
-  category = '';
+  selectedCategories: string[] = [];
   location = '';
   whatHappened = '';
   whenStarted = '';
@@ -399,8 +405,21 @@ export class EmergencyComponent implements OnInit {
     this.activePet.set(id);
   }
 
-  pickCategory(c: string) {
-    this.category = c;
+  isCategoryOn(c: string) {
+    return this.selectedCategories.includes(c);
+  }
+
+  toggleCategory(c: string) {
+    if (this.isCategoryOn(c)) {
+      this.selectedCategories = this.selectedCategories.filter((item) => item !== c);
+      return;
+    }
+    this.selectedCategories = [...this.selectedCategories, c];
+  }
+
+  /** Keep chip order so the request lists issues the same way they appear. */
+  chosenCategories() {
+    return this.categories.filter((c) => this.selectedCategories.includes(c));
   }
 
   goPhase(n: number) {
@@ -411,7 +430,7 @@ export class EmergencyComponent implements OnInit {
   }
 
   canGoDetails() {
-    return !!(this.petId && this.category);
+    return !!(this.petId && this.chosenCategories().length);
   }
 
   canGoContact() {
@@ -440,7 +459,7 @@ export class EmergencyComponent implements OnInit {
   }
 
   canSubmit() {
-    return !!(this.petId && this.category && this.whatHappened.trim() && this.safetyAck);
+    return !!(this.petId && this.chosenCategories().length && this.whatHappened.trim() && this.safetyAck);
   }
 
   async submit() {
@@ -448,10 +467,15 @@ export class EmergencyComponent implements OnInit {
     this.saving.set(true);
     this.error.set('');
     try {
+      const categories = this.chosenCategories();
+      const story = this.whatHappened.trim();
+      const issueLine = `Issues: ${categories.join(', ')}`;
+      const userNotes = this.notes.trim();
       const row = await this.api.createEmergency({
         petId: this.petId,
-        category: this.category,
-        whatHappened: this.whatHappened.trim(),
+        // The API accepts one intake category. Extra issues travel with the story.
+        category: categories[0],
+        whatHappened: categories.length > 1 ? `${issueLine}\n${story}` : story,
         location: this.location.trim() || undefined,
         whenStarted: this.whenStarted.trim() || undefined,
         conscious: this.conscious,
@@ -460,7 +484,7 @@ export class EmergencyComponent implements OnInit {
         possiblePoisoning: this.possiblePoisoning,
         accident: this.accident,
         phone: this.phone.trim() || undefined,
-        notes: this.notes.trim() || undefined,
+        notes: categories.length > 1 ? [issueLine, userNotes].filter(Boolean).join('\n') : userNotes || undefined,
         safetyAck: true,
       });
       this.submitted.set(row);

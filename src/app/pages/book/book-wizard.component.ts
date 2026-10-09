@@ -5,7 +5,7 @@ import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { AuthService } from '../../services/auth.service';
 import { BookingGateService } from '../../services/booking-gate.service';
-import { blockingBookings, bookingBlocksPet } from '../../utils/booking-pending';
+import { blockingBookings, bookingBlocksPet, rememberVisitPets } from '../../utils/booking-pending';
 import { resolvePetPhotoUrl } from '../../utils/pet-photo';
 import { displayPetName } from '../../utils/health-records';
 import { VosPetAvatarComponent } from '../../shared/vos-pet-avatar.component';
@@ -295,65 +295,92 @@ const INDIAN_STATES = [
         }
 
         @if (step() === 2) {
-          <p class="hint">Select every symptom that applies</p>
-          <div class="pills" role="group" aria-label="Symptoms">
-            @for (r of reasons; track r) {
-              <button
-                type="button"
-                class="pill"
-                [class.on]="isReasonOn(r)"
-                [attr.aria-pressed]="isReasonOn(r)"
-                (click)="toggleReason(r)"
-              >
-                {{ pretty(r) }}
-              </button>
+          <p class="hint">
+            @if (petIds.length > 1) {
+              Select symptoms for each pet. They don’t have to match.
+            } @else {
+              Select every symptom that applies
             }
-          </div>
+          </p>
+          @for (id of petIds; track id) {
+            <section class="pet-issue" [class.pet-issue--solo]="petIds.length === 1">
+              @if (petIds.length > 1) {
+                <h2 class="pet-issue__name">{{ nameFor(id) }}</h2>
+              }
+              <div class="pills" role="group" [attr.aria-label]="'Symptoms for ' + nameFor(id)">
+                @for (r of reasons; track r) {
+                  <button
+                    type="button"
+                    class="pill"
+                    [class.on]="isPetReasonOn(id, r)"
+                    [attr.aria-pressed]="isPetReasonOn(id, r)"
+                    (click)="togglePetReason(id, r)"
+                  >
+                    {{ pretty(r) }}
+                  </button>
+                }
+              </div>
+            </section>
+          }
           <div class="nav">
             <button type="button" class="ghost" (click)="go(1)">Back</button>
-            <button type="button" class="btn" [disabled]="!reasonsSelected.length" (click)="go(3)">Continue</button>
+            <button type="button" class="btn" [disabled]="!everyPetHasReason()" (click)="go(3)">Continue</button>
           </div>
         }
 
         @if (step() === 3) {
           <div class="fields">
-            @for (q of intakeQs(); track q.label) {
-              <div class="field">
-                <span class="field__label">
-                  {{ q.label }}
-                  @if (q.options?.length) {
-                    <span class="req" aria-hidden="true">*</span>
-                  }
-                </span>
-                @if (q.options?.length) {
-                  <div class="pills" role="group" [attr.aria-label]="q.label">
-                    @for (opt of q.options; track opt) {
-                      <button
-                        type="button"
-                        class="pill"
-                        [class.on]="intakeAnswerMap[q.label] === opt"
-                        (click)="setIntakeAnswer(q.label, opt)"
-                      >{{ opt }}</button>
+            @for (id of petIds; track id) {
+              <section class="pet-issue" [class.pet-issue--solo]="petIds.length === 1">
+                @if (petIds.length > 1) {
+                  <h2 class="pet-issue__name">{{ nameFor(id) }}</h2>
+                  <p class="hint">{{ reasonLabelFor(id) }}</p>
+                }
+                @for (q of intakeQsFor(id); track q.label) {
+                  <div class="field">
+                    <span class="field__label">
+                      {{ q.label }}
+                      @if (q.options?.length) {
+                        <span class="req" aria-hidden="true">*</span>
+                      }
+                    </span>
+                    @if (q.options?.length) {
+                      <div class="pills" role="group" [attr.aria-label]="q.label">
+                        @for (opt of q.options; track opt) {
+                          <button
+                            type="button"
+                            class="pill"
+                            [class.on]="answerFor(id, q.label) === opt"
+                            (click)="setPetAnswer(id, q.label, opt)"
+                          >{{ opt }}</button>
+                        }
+                      </div>
+                      @if (fieldError() === answerKey(id, q.label)) {
+                        <span class="field-err">Please choose an option</span>
+                      }
+                    } @else {
+                      <textarea
+                        [ngModel]="answerFor(id, q.label)"
+                        (ngModelChange)="setPetAnswer(id, q.label, $event)"
+                        [name]="'iq-' + id + '-' + q.label"
+                        rows="2"
+                        [placeholder]="q.placeholder || ''"
+                      ></textarea>
                     }
                   </div>
-                  @if (fieldError() === q.label) {
-                    <span class="field-err">Please choose an option</span>
-                  }
-                } @else {
-                  <textarea
-                    [ngModel]="intakeAnswerMap[q.label] || ''"
-                    (ngModelChange)="setIntakeAnswer(q.label, $event)"
-                    [name]="'iq-' + q.label"
-                    rows="2"
-                    [placeholder]="q.placeholder || ''"
-                  ></textarea>
                 }
-              </div>
+                <label class="field">
+                  <span class="field__label">Anything else? <em>(optional)</em></span>
+                  <textarea
+                    [ngModel]="extraFor(id)"
+                    (ngModelChange)="setPetExtra(id, $event)"
+                    [name]="'extra-' + id"
+                    rows="2"
+                    placeholder="Optional notes for this pet"
+                  ></textarea>
+                </label>
+              </section>
             }
-            <label class="field">
-              <span class="field__label">Anything else? <em>(optional)</em></span>
-              <textarea [(ngModel)]="intakeExtra" name="intakeExtra" rows="2" placeholder="Optional notes"></textarea>
-            </label>
             <div class="field">
               <span class="field__label">Photo <em>(optional)</em></span>
               <label class="upload" [class.upload--has]="!!photoPreview()">
@@ -1046,6 +1073,26 @@ const INDIAN_STATES = [
       font-weight: 600;
     }
     .hint--spaced { margin-top: 18px; }
+    .pet-issue {
+      margin: 0 0 16px;
+      padding: 16px 16px 6px;
+      border: 1px solid var(--vos-border);
+      border-radius: 18px;
+      background: #fff;
+    }
+    .pet-issue--solo {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+    .pet-issue__name {
+      margin: 0 0 10px;
+      font-family: var(--vos-display);
+      font-size: 1.2rem;
+      letter-spacing: -0.03em;
+    }
+    .pet-issue .hint { margin-bottom: 12px; }
     .addr-block { margin-bottom: 4px; }
     .addr-block__head {
       display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
@@ -1382,9 +1429,10 @@ export class BookWizardComponent implements OnInit {
   readonly sessionExpired = signal(false);
   readonly exitOpen = signal(false);
   petIds: string[] = [];
-  reasonsSelected: string[] = [];
-  intakeAnswerMap: Record<string, string> = {};
-  intakeExtra = '';
+  /** Symptoms chosen per pet — pets on one visit can differ. */
+  reasonsByPet: Record<string, string[]> = {};
+  answersByPet: Record<string, Record<string, string>> = {};
+  extraByPet: Record<string, string> = {};
   selectedSavedId = '';
   addrStreet = '';
   addrApt = '';
@@ -1474,7 +1522,14 @@ export class BookWizardComponent implements OnInit {
   }
 
   meta() {
-    return STEP_TITLES[this.step()] || STEP_TITLES[1];
+    const base = STEP_TITLES[this.step()] || STEP_TITLES[1];
+    if (this.petIds.length > 1 && this.step() === 2) {
+      return { ...base, sub: 'Each pet can have different symptoms.' };
+    }
+    if (this.petIds.length > 1 && this.step() === 3) {
+      return { ...base, sub: 'Answer for each pet. Their details stay separate.' };
+    }
+    return base;
   }
 
   progressPercent() {
@@ -1722,28 +1777,52 @@ export class BookWizardComponent implements OnInit {
     return r ? r.charAt(0).toUpperCase() + r.slice(1) : r;
   }
 
-  isReasonOn(r: string) {
-    return this.reasonsSelected.includes(r);
+  nameFor(id: string) {
+    const raw = this.pets().find((p) => p.id === id)?.name;
+    return displayPetName(raw || 'Pet');
   }
 
-  toggleReason(r: string) {
-    if (this.isReasonOn(r)) {
-      this.reasonsSelected = this.reasonsSelected.filter((x) => x !== r);
-    } else {
-      this.reasonsSelected = [...this.reasonsSelected, r];
-    }
+  reasonsFor(id: string): string[] {
+    return this.reasonsByPet[id] || [];
+  }
+
+  isPetReasonOn(id: string, r: string) {
+    return this.reasonsFor(id).includes(r);
+  }
+
+  togglePetReason(id: string, r: string) {
+    if (!id) return;
+    const current = this.reasonsFor(id);
+    const next = current.includes(r) ? current.filter((x) => x !== r) : [...current, r];
+    this.reasonsByPet = { ...this.reasonsByPet, [id]: next };
+  }
+
+  everyPetHasReason() {
+    return this.petIds.length > 0 && this.petIds.every((id) => this.reasonsFor(id).length > 0);
+  }
+
+  reasonLabelFor(id: string) {
+    const list = this.reasonsFor(id);
+    if (!list.length) return '—';
+    return list.map((r) => this.pretty(r)).join(', ');
+  }
+
+  /** One line the care team can scan: "Doggy: Sick · Blacky: Not eating". */
+  reasonSummaryLine() {
+    if (this.petIds.length <= 1) return this.reasonLabelFor(this.petIds[0] || '');
+    return this.petIds.map((id) => `${this.nameFor(id)}: ${this.reasonLabelFor(id)}`).join(' · ');
   }
 
   reasonLabel() {
-    if (!this.reasonsSelected.length) return '—';
-    return this.reasonsSelected.map((r) => this.pretty(r)).join(', ');
+    if (this.petIds.length <= 1) return this.reasonLabelFor(this.petIds[0] || '');
+    return this.petIds.map((id) => `${this.nameFor(id)} — ${this.reasonLabelFor(id)}`).join('\n');
   }
 
-  /** Merge intake questions across all selected symptoms (unique by label). */
-  intakeQs(): IntakeQ[] {
+  /** Merge intake questions for one pet’s symptoms (unique by label). */
+  intakeQsFor(id: string): IntakeQ[] {
     const seen = new Set<string>();
     const out: IntakeQ[] = [];
-    for (const r of this.reasonsSelected) {
+    for (const r of this.reasonsFor(id)) {
       for (const q of INTAKE[r] || INTAKE['other']) {
         if (seen.has(q.label)) continue;
         seen.add(q.label);
@@ -1753,14 +1832,33 @@ export class BookWizardComponent implements OnInit {
     return out;
   }
 
-  setIntakeAnswer(label: string, value: string) {
-    this.intakeAnswerMap = { ...this.intakeAnswerMap, [label]: value };
-    if (this.fieldError() === label) this.fieldError.set('');
+  answerKey(petId: string, label: string) {
+    return `${petId}::${label}`;
+  }
+
+  answerFor(petId: string, label: string) {
+    return this.answersByPet[petId]?.[label] || '';
+  }
+
+  setPetAnswer(petId: string, label: string, value: string) {
+    const prev = this.answersByPet[petId] || {};
+    this.answersByPet = { ...this.answersByPet, [petId]: { ...prev, [label]: value } };
+    if (this.fieldError() === this.answerKey(petId, label)) this.fieldError.set('');
+  }
+
+  extraFor(petId: string) {
+    return this.extraByPet[petId] || '';
+  }
+
+  setPetExtra(petId: string, value: string) {
+    this.extraByPet = { ...this.extraByPet, [petId]: value };
   }
 
   canContinueIntake() {
-    return this.intakeQs().every(
-      (q) => !q.options?.length || !!(this.intakeAnswerMap[q.label] || '').trim(),
+    return this.petIds.every((id) =>
+      this.intakeQsFor(id).every(
+        (q) => !q.options?.length || !!this.answerFor(id, q.label).trim(),
+      ),
     );
   }
 
@@ -1894,17 +1992,25 @@ export class BookWizardComponent implements OnInit {
       }
     }
     if (this.step() === 2 && target >= 3) {
-      if (!this.reasonsSelected.length) {
-        this.error.set('Select at least one symptom to continue.');
+      const missing = this.petIds.find((id) => !this.reasonsFor(id).length);
+      if (missing) {
+        this.error.set(
+          this.petIds.length > 1
+            ? `Select at least one symptom for ${this.nameFor(missing)}.`
+            : 'Select at least one symptom to continue.',
+        );
         return false;
       }
     }
     if (this.step() === 3 && target >= 4) {
-      for (const q of this.intakeQs()) {
-        if (q.options?.length && !(this.intakeAnswerMap[q.label] || '').trim()) {
-          this.fieldError.set(q.label);
-          this.error.set(`Please answer: ${q.label}`);
-          return false;
+      for (const id of this.petIds) {
+        for (const q of this.intakeQsFor(id)) {
+          if (q.options?.length && !this.answerFor(id, q.label).trim()) {
+            this.fieldError.set(this.answerKey(id, q.label));
+            const who = this.petIds.length > 1 ? `${this.nameFor(id)} — ` : '';
+            this.error.set(`Please answer: ${who}${q.label}`);
+            return false;
+          }
         }
       }
     }
@@ -1949,25 +2055,44 @@ export class BookWizardComponent implements OnInit {
     return names.length ? names.join(', ') : '—';
   }
 
-  intakeText() {
-    const parts = this.intakeQs()
+  private intakeBody(petId: string) {
+    const parts = this.intakeQsFor(petId)
       .map((q) => {
-        const a = (this.intakeAnswerMap[q.label] || '').trim();
+        const a = this.answerFor(petId, q.label).trim();
         return a ? `${q.label}: ${a}` : '';
       })
       .filter(Boolean);
-    if (this.intakeExtra.trim()) parts.push(this.intakeExtra.trim());
-    if (this.petIds.length > 1) {
-      parts.unshift(`Pets on this visit: ${this.petNames()}`);
-    }
+    const extra = this.extraFor(petId).trim();
+    if (extra) parts.push(extra);
     return parts.join('\n');
   }
 
+  /** Full story for the visit, with each pet’s answers kept apart. */
+  intakeText() {
+    const blocks = this.petIds.map((id) => {
+      const body = this.intakeBody(id);
+      const head = this.petIds.length > 1 ? `${this.nameFor(id)} — ${this.reasonLabelFor(id)}` : '';
+      return [head, body].filter(Boolean).join('\n');
+    });
+    if (this.petIds.length > 1) {
+      blocks.unshift(`Pets on this visit: ${this.petNames()}`);
+    }
+    return blocks.filter(Boolean).join('\n\n');
+  }
+
   detailsForReview() {
-    const t = this.intakeText().trim();
-    if (!t) return 'None provided';
-    if (t.toLowerCase() === this.reasonLabel().toLowerCase()) return 'None provided';
-    return t;
+    if (this.petIds.length <= 1) {
+      const t = this.intakeBody(this.petIds[0] || '').trim();
+      if (!t) return 'None provided';
+      if (t.toLowerCase() === this.reasonLabel().toLowerCase()) return 'None provided';
+      return t;
+    }
+    return this.petIds
+      .map((id) => {
+        const body = this.intakeBody(id).trim() || 'None provided';
+        return `${this.nameFor(id)}\n${body}`;
+      })
+      .join('\n\n');
   }
 
   async confirm() {
@@ -1977,7 +2102,7 @@ export class BookWizardComponent implements OnInit {
       !address.trim() ||
       !this.preferredDate ||
       !this.preferredTime ||
-      !this.reasonsSelected.length
+      !this.everyPetHasReason()
     ) {
       this.error.set('Please complete pets, address, date, time, and symptoms before confirming.');
       return;
@@ -1999,37 +2124,42 @@ export class BookWizardComponent implements OnInit {
         typeof crypto !== 'undefined' && crypto.randomUUID
           ? crypto.randomUUID()
           : `bk-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const created: any[] = [];
-      for (let i = 0; i < this.petIds.length; i++) {
-        const petId = this.petIds[i];
-        const booking = await this.api.createBooking(
-          {
-            petId,
-            petIds: this.petIds,
-            reasonForVisit: this.reasonsSelected.join(', '),
-            intakeText: this.intakeText() || this.reasonLabel(),
-            address,
-            preferredDate: this.preferredDate,
-            preferredTime: this.preferredTime,
-            consultationType: this.consultationType,
-            mediaUrls: [],
-          },
-          `${baseKey}-${i}`,
-        );
-        created.push(booking);
-        if (this.photoFile && booking?.id && i === 0) {
-          try {
-            await this.api.uploadBookingFiles(booking.id, [this.photoFile]);
-          } catch {
-            /* booking still created — surface soft warning via query param */
-            sessionStorage.setItem(
-              'vos.booking.uploadWarn',
-              'Visit booked, but the photo could not be uploaded. You can add it from the visit page if available.',
-            );
-          }
+      const sharedReason =
+        this.petIds.length > 1 ? this.reasonSummaryLine() : this.reasonsFor(this.petIds[0]).join(', ');
+      const sharedIntake = this.intakeText() || this.reasonLabel();
+      const primary = await this.api.createBooking(
+        {
+          petId: this.petIds[0],
+          petIds: this.petIds,
+          reasonForVisit: sharedReason,
+          intakeText: sharedIntake,
+          address,
+          preferredDate: this.preferredDate,
+          preferredTime: this.preferredTime,
+          consultationType: this.consultationType,
+          mediaUrls: [],
+        },
+        baseKey,
+      );
+      for (const petId of this.petIds) {
+        const pet = this.pets().find((p) => p.id === petId);
+        this.bookingGate.markPetBlocked(petId, pet?.name);
+      }
+      if (this.photoFile && primary?.id) {
+        try {
+          await this.api.uploadBookingFiles(primary.id, [this.photoFile]);
+        } catch {
+          /* booking still created — surface soft warning via query param */
+          sessionStorage.setItem(
+            'vos.booking.uploadWarn',
+            'Visit booked, but the photo could not be uploaded. You can add it from the visit page if available.',
+          );
         }
       }
-      const primary = created[0];
+      rememberVisitPets(
+        [primary?.id, primary?.bookingId, primary?.displayId],
+        this.petIds.map((id) => this.nameFor(id)),
+      );
       const intakeId = this.route.snapshot.queryParamMap.get('intakeId');
       if (intakeId && primary?.id) {
         try {

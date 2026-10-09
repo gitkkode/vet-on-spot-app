@@ -6,6 +6,7 @@ import { ActivePetService } from '../services/active-pet.service';
 import { AuthService } from '../services/auth.service';
 import { BookingGateService } from '../services/booking-gate.service';
 import { titleCase } from '../utils/health-records';
+import { readLocalNotifications, syncCancelNotificationsFromPending } from '../utils/local-notifications';
 
 @Component({
   selector: 'app-shell',
@@ -38,6 +39,14 @@ import { titleCase } from '../utils/health-records';
                 </a>
               }
             }
+            <a
+              routerLink="/emergency"
+              class="portal-top__cta portal-top__cta--emergency"
+              [queryParams]="fabPet()"
+              (click)="closeMenu()"
+            >
+              Emergency
+            </a>
             <a
               routerLink="/notifications"
               class="portal-top__icon"
@@ -293,6 +302,24 @@ import { titleCase } from '../utils/health-records';
       color: #fff;
       cursor: not-allowed;
       transform: none;
+    }
+    .portal-top__cta--emergency {
+      display: inline-flex;
+      background: transparent;
+      color: #B42318;
+      border: 1.5px solid rgba(180, 35, 24, 0.45);
+    }
+    .portal-top__cta--emergency:hover {
+      background: rgba(180, 35, 24, 0.08);
+      color: #B42318;
+    }
+    @media (max-width: 639px) {
+      .portal-top__actions { gap: 10px; }
+      .portal-top__cta--emergency {
+        min-height: 40px;
+        padding: 8px 12px;
+        font-size: 13px;
+      }
     }
     @media (min-width: 640px) {
       .portal-top__cta { display: inline-flex; }
@@ -734,9 +761,14 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   async refreshUnread() {
     try {
+      syncCancelNotificationsFromPending();
       const raw = await this.api.notifications(false);
-      const { unreadCount } = this.api.parseNotifications(raw);
-      this.unread.set(Math.max(0, unreadCount || 0));
+      const { items, unreadCount } = this.api.parseNotifications(raw);
+      const remoteIds = new Set((items || []).map((n: any) => String(n?.id || '')));
+      const localUnread = readLocalNotifications().filter(
+        (n) => !n.read && !n.readAt && !remoteIds.has(n.id),
+      ).length;
+      this.unread.set(Math.max(0, (unreadCount || 0) + localUnread));
     } catch {
       this.unread.set(0);
     }
