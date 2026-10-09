@@ -2,11 +2,12 @@ import { Component, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
-import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
+import { displayPetName } from '../../utils/health-records';
+import { visitPetNames } from '../../utils/booking-pending';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, VosBackButtonComponent, VosTitleCasePipe],
+  imports: [RouterLink, VosBackButtonComponent],
   selector: 'app-booking-track',
   template: `
     <vos-back-button [fallback]="['/bookings', id]" fallbackLabel="Appointment" />
@@ -56,7 +57,7 @@ import { VosTitleCasePipe } from '../../shared/vos-title-case.pipe';
       <article class="summary">
         <div class="summary__row">
           <em>Pet</em>
-          <strong>{{ d.booking?.petName | vosTitleCase:'Your pet' }}</strong>
+          <strong>{{ visitHeading(d.booking) }}</strong>
         </div>
         <div class="summary__row">
           <em>When</em>
@@ -278,6 +279,14 @@ export class BookingTrackComponent implements OnInit {
   ngOnInit() {
     this.id = this.route.snapshot.paramMap.get('id') || '';
     void this.load();
+  }
+
+  visitHeading(booking: any): string {
+    const names = visitPetNames(booking)
+      .map((n) => displayPetName(n))
+      .filter(Boolean);
+    if (names.length) return names.join(', ');
+    return displayPetName(booking?.petName, 'Your pet');
   }
 
   prettyWhen(booking: any): string {

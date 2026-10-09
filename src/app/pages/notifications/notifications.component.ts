@@ -2,6 +2,11 @@ import { Component, OnInit, computed, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { VosBackButtonComponent } from '../../shared/vos-back-button.component';
+import {
+  markLocalNotificationsRead,
+  readLocalNotifications,
+  syncCancelNotificationsFromPending,
+} from '../../utils/local-notifications';
 
 type FilterTab = 'all' | 'unread' | 'urgent';
 
@@ -226,7 +231,7 @@ export class NotificationsComponent implements OnInit {
     try {
       const raw = await this.api.notifications();
       const { items } = this.api.parseNotifications(raw);
-      this.rawItems.set(items);
+      this.rawItems.set(this.mergeLocal(items));
     } catch (e: any) {
       this.error.set(e?.message || 'Failed to load notifications');
     } finally {
@@ -261,13 +266,21 @@ export class NotificationsComponent implements OnInit {
 
   async open(n: any) {
     if (this.isUnread(n)) {
-      try {
-        await this.api.markNotificationRead(n.id);
+      const now = new Date().toISOString();
+      if (this.isLocal(n)) {
+        markLocalNotificationsRead([n.id]);
         this.rawItems.update((list) =>
-          list.map((x) => (x.id === n.id ? { ...x, read: true, readAt: new Date().toISOString() } : x)),
+          list.map((x) => (x.id === n.id ? { ...x, read: true, readAt: now } : x)),
         );
-      } catch {
-        /* still allow deep link */
+      } else {
+        try {
+          await this.api.markNotificationRead(n.id);
+          this.rawItems.update((list) =>
+            list.map((x) => (x.id === n.id ? { ...x, read: true, readAt: now } : x)),
+          );
+        } catch {
+          /* still allow deep link */
+        }
       }
     }
     const target = this.deepLink(n);
@@ -281,7 +294,10 @@ export class NotificationsComponent implements OnInit {
     this.error.set('');
     this.ok.set('');
     try {
-      await this.api.markAllNotificationsRead(unread.map((n) => n.id));
+      const localIds = unread.filter((n) => this.isLocal(n)).map((n) => n.id);
+      const remoteIds = unread.filter((n) => !this.isLocal(n)).map((n) => n.id);
+      if (localIds.length) markLocalNotificationsRead(localIds);
+      if (remoteIds.length) await this.api.markAllNotificationsRead(remoteIds);
       const now = new Date().toISOString();
       const ids = new Set(unread.map((n) => n.id));
       this.rawItems.update((list) =>
@@ -304,7 +320,10 @@ export class NotificationsComponent implements OnInit {
     try {
       const unread = list.filter((n) => this.isUnread(n));
       if (unread.length) {
-        await this.api.markAllNotificationsRead(unread.map((n) => n.id));
+        const localIds = unread.filter((n) => this.isLocal(n)).map((n) => n.id);
+        const remoteIds = unread.filter((n) => !this.isLocal(n)).map((n) => n.id);
+        if (localIds.length) markLocalNotificationsRead(localIds);
+        if (remoteIds.length) await this.api.markAllNotificationsRead(remoteIds);
         const now = new Date().toISOString();
         const ids = new Set(unread.map((n) => n.id));
         this.rawItems.update((rows) =>
@@ -321,6 +340,28 @@ export class NotificationsComponent implements OnInit {
     } finally {
       this.busy.set('');
     }
+  }
+
+  private isLocal(n: any): boolean {
+    return n?.local === true || String(n?.id || '').startsWith('local-cancel-');
+  }
+
+  /** Keep a cancel notice on this device when the server has not sent one yet. */
+  private mergeLocal(items: any[]): any[] {
+    const remote = Array.isArray(items) ? items : [];
+    const remoteKeys = new Set(
+      remote.map((n) => {
+        const text = `${n?.title || ''} ${n?.body || n?.message || ''}`.toLowerCase();
+        const id = String(n?.entityId || n?.payload?.entityId || n?.payload?.bookingId || '');
+        return `${id}|${/cancel/.test(text) ? 'cancel' : 'other'}`;
+      }),
+    );
+    syncCancelNotificationsFromPending();
+    const local = readLocalNotifications().filter((n) => {
+      const key = `${n.entityId || ''}|cancel`;
+      return !remoteKeys.has(key);
+    });
+    return [...local, ...remote];
   }
 
   private normalizeItem(n: any) {

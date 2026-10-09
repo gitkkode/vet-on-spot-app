@@ -28,9 +28,15 @@ import { dedupeAddressText } from '../../utils/address';
 
       <div class="vos-card">
         <p><strong>{{ c.petName | vosTitleCase:'Pet' }}</strong></p>
-        <p>{{ c.category }}</p>
-        @if (c.reason) {
-          <p class="vos-muted">{{ c.reason }}</p>
+        @if (issues(c).length) {
+          <p class="issues">
+            @for (issue of issues(c); track issue) {
+              <span>{{ issue }}</span>
+            }
+          </p>
+        }
+        @if (story(c)) {
+          <p class="vos-muted">{{ story(c) }}</p>
         }
         @if (c.location) { <p><strong>Location</strong> {{ prettyLocation(c.location) }}</p> }
         @if (c.phone) { <p><strong>Phone</strong> {{ c.phone }}</p> }
@@ -79,6 +85,16 @@ import { dedupeAddressText } from '../../utils/address';
       letter-spacing: 0.04em; color: var(--vos-ink-muted); font-weight: 700;
     }
     .vos-card p { margin: 8px 0; }
+    .issues { display: flex; flex-wrap: wrap; gap: 8px; }
+    .issues span {
+      display: inline-flex;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #fdecec;
+      color: var(--vos-danger, #c62828);
+      font-weight: 700;
+      font-size: 0.88rem;
+    }
     .note { font-size: 0.88rem; margin-top: 12px !important; }
     .actions {
       display: flex;
@@ -121,6 +137,31 @@ export class EmergencyStatusComponent implements OnInit {
 
   prettyLocation(raw: unknown): string {
     return dedupeAddressText(raw);
+  }
+
+  issues(c: any): string[] {
+    const list = Array.isArray(c?.categories) ? c.categories : [];
+    const fromList = list.map((item: unknown) => String(item || '').trim()).filter(Boolean);
+    if (fromList.length) return fromList;
+
+    for (const blob of [c?.notes, c?.whatHappened, c?.reason]) {
+      const match = String(blob || '').match(/Issues:\s*([^\n]+)/);
+      if (!match) continue;
+      const parsed = match[1]
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (parsed.length) return parsed;
+    }
+
+    const raw = String(c?.category || '').trim();
+    return raw ? [raw] : [];
+  }
+
+  story(c: any): string {
+    return String(c?.reason || c?.whatHappened || '')
+      .replace(/^Issues:\s*[^\n]+\n?/, '')
+      .trim();
   }
 
   async load() {

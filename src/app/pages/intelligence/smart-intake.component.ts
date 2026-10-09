@@ -17,7 +17,7 @@ type Step = 'start' | 'draft' | 'questions' | 'summary' | 'recommend';
     <vos-back-button />
     <header class="head">
       <p class="eyebrow">Smart intake</p>
-      <h1>Something is wrong</h1>
+      <h1>Not feeling well</h1>
       <p class="vos-muted">
         Describe what you are seeing. We will help you organize details for a veterinarian —
         this is <strong>not a diagnosis</strong>.

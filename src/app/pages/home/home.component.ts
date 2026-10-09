@@ -3,7 +3,7 @@ import { RouterLink } from '@angular/router';
 import { CustomerApiService } from '../../services/customer-api.service';
 import { ActivePetService } from '../../services/active-pet.service';
 import { BookingGateService } from '../../services/booking-gate.service';
-import { filterUpcomingBookings, normalizeBookingsList, bookingBlocksPet } from '../../utils/booking-pending';
+import { filterUpcomingBookings, normalizeBookingsList, bookingBlocksPet, visitPetNames } from '../../utils/booking-pending';
 import { normalizePetRecord, normalizePetsList, resolvePetPhotoUrl } from '../../utils/pet-photo';
 import { displayPetName } from '../../utils/health-records';
 import { VosPetAvatarComponent } from '../../shared/vos-pet-avatar.component';
@@ -241,9 +241,6 @@ import { VosPetAvatarComponent } from '../../shared/vos-pet-avatar.component';
                 <span>Tell us what’s going on</span>
               </a>
             </div>
-            <a class="paths__emer" routerLink="/emergency" [queryParams]="petQuery()">
-              Need urgent care? Open emergency
-            </a>
           </section>
           </div>
 
@@ -1114,16 +1111,6 @@ import { VosPetAvatarComponent } from '../../shared/vos-pet-avatar.component';
       font-size: 0.92rem;
       line-height: 1.35;
     }
-    .paths__emer {
-      display: inline-block;
-      margin-top: 14px;
-      font-weight: 700;
-      font-size: 0.92rem;
-      color: #B42318;
-      text-decoration: none;
-    }
-    .paths__emer:hover { text-decoration: underline; }
-
     .care {
       padding: 18px 18px 8px;
       border-radius: 20px;
@@ -1527,31 +1514,6 @@ export class HomeComponent implements OnInit, AfterViewChecked {
       queryParams?: Record<string, string>;
     }> = [];
 
-    const up = this.petAppointments()[0];
-    if (up) {
-      snaps.push({
-        key: 'appt',
-        label: 'Next visit',
-        value: this.prettyWhen(up.scheduledDate, up.scheduledTime),
-        commands: ['/bookings', up.id],
-      });
-    } else if (this.bookingBlocked()) {
-      snaps.push({
-        key: 'appt',
-        label: 'Next visit',
-        value: 'Already booked',
-        commands: ['/bookings'],
-      });
-    } else {
-      snaps.push({
-        key: 'appt',
-        label: 'Next visit',
-        value: 'None scheduled',
-        commands: ['/book/new'],
-        queryParams: this.petQuery(),
-      });
-    }
-
     const vax = hs?.careStatus?.nextVaccination;
     if (vax) {
       snaps.push({
@@ -1652,7 +1614,11 @@ export class HomeComponent implements OnInit, AfterViewChecked {
 
   /** Prefer the active pet’s name when the booking label is missing/generic. */
   appointmentPetLabel(b: any): string {
-    const raw = String(b?.petName || '').trim();
+    const names = visitPetNames(b)
+      .map((n) => this.displayPetName(n))
+      .filter(Boolean);
+    if (names.length > 1) return names.join(', ');
+    const raw = String(names[0] || b?.petName || '').trim();
     const n = this.normPetName(raw);
     if (raw && n && n !== 'visit' && n !== 'pet' && n !== 'your pet' && n !== 'home visit') {
       return this.displayPetName(raw);
